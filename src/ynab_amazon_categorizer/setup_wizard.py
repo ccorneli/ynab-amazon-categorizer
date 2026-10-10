@@ -270,9 +270,9 @@ def _prompt_amazon_domain(ask: Ask, current: str) -> str:
         if not domain:
             print("Enter a domain such as amazon.com.")
             continue
-        if domain in COMMON_AMAZON_DOMAINS or domain == current:
+        if domain in COMMON_AMAZON_DOMAINS:
             return domain
-        print(f"{domain} isn't one of the common Amazon sites listed above.")
+        print(f"{domain} isn't one of the common Amazon sites.")
         if _confirm(
             ask,
             f"Double-check the spelling. Use {domain} anyway?",

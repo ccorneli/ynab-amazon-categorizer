@@ -225,15 +225,29 @@ def test_run_setup_confirms_unlisted_domain(tmp_path: Path) -> None:
 
 
 def test_run_setup_uses_current_domain_as_default(tmp_path: Path) -> None:
-    """An existing AMAZON_DOMAIN is offered as the default."""
+    """An existing unlisted AMAZON_DOMAIN is the default but still confirmed."""
     values, _, _ = _run(
         tmp_path,
-        ["", "", "", ""],
+        ["", "", "", "y", ""],
         current_amazon_domain="amazon.com.mx",
     )
 
     assert values is not None
     assert values.amazon_domain == "amazon.com.mx"
+
+
+def test_run_setup_declining_current_unlisted_domain_asks_again(
+    tmp_path: Path,
+) -> None:
+    """Declining an unlisted existing domain asks for the site again."""
+    values, _, _ = _run(
+        tmp_path,
+        ["", "", "", "", "3", ""],
+        current_amazon_domain="amazon.attacker.example",
+    )
+
+    assert values is not None
+    assert values.amazon_domain == "amazon.ca"
 
 
 def test_run_setup_declined_save_writes_nothing(tmp_path: Path) -> None:
