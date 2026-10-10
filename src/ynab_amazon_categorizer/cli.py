@@ -39,6 +39,7 @@ from .payloads import (
     build_single_payload,
     build_split_payload,
 )
+from .setup_wizard import DEFAULT_AMAZON_DOMAIN, ENV_FILENAME, run_setup
 from .tax import tax_rate_for_category as _tax_rate_for_category
 from .transaction_matcher import TransactionMatcher
 from .transactions import fetch_amazon_transactions
@@ -134,6 +135,11 @@ def _prompt_line(message: str) -> str:
     ``.lower()`` chains on the result keep working.
     """
     return prompt(message)
+
+
+def _prompt_secret(message: str) -> str:
+    """Read one line of input without echoing it."""
+    return prompt(message, is_password=True)
 
 
 def _prompt_quantity() -> int | None:
@@ -1048,6 +1054,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--setup",
+        action="store_true",
+        help=(
+            "Interactively create or replace the .env file in the current "
+            "directory (API key, budget, account, Amazon domain), then exit."
+        ),
+    )
+    parser.add_argument(
         "--include-reconciled",
         action="store_true",
         help=(
@@ -1073,15 +1087,47 @@ def _print_run_banners(dry_run: bool, include_reconciled: bool) -> None:
         print("*** Skipping split prompt for single-item transactions. ***")
 
 
-def _load_config() -> Config | None:
+def _run_setup_wizard() -> bool:
+    """Run interactive setup for ./.env; return True if a config was saved."""
+    try:
+        values = run_setup(
+            _prompt_line,
+            _prompt_secret,
+            Path.cwd() / ENV_FILENAME,
+            current_amazon_domain=os.getenv("AMAZON_DOMAIN", DEFAULT_AMAZON_DOMAIN),
+        )
+    except _FETCH_ERRORS as exc:
+        logger.error("Setup failed: %s", exc)
+        print(f"Setup failed: {exc}")
+        return False
+    return values is not None
+
+
+def _offer_setup(error: ConfigurationError) -> bool:
+    """Offer first-run setup when there is no .env and a user is at the terminal."""
+    if (Path.cwd() / ENV_FILENAME).exists() or not sys.stdin.isatty():
+        return False
+    print(f"\n{error}")
+    answer = _prompt_line(
+        "No .env file found in this folder. Set one up now? (Y/n): ",
+    )
+    if answer.strip().lower() not in ("", "y", "yes"):
+        return False
+    return _run_setup_wizard()
+
+
+def _load_config(*, interactive: bool = True) -> Config | None:
     """Load and summarize configuration, or report why it could not be loaded."""
     try:
         config = Config.from_env()
     except ConfigurationError as e:
-        logger.error("Configuration error: %s", e)
-        print("Please set environment variables or create a .env file.")
-        print("See README.md for setup instructions.")
-        return None
+        if not (interactive and _offer_setup(e)):
+            logger.error("Configuration error: %s", e)
+            print("Please set environment variables or create a .env file.")
+            print("Run 'ynab-amazon-categorizer --setup' to create one interactively.")
+            print("See README.md for setup instructions.")
+            return None
+        config = Config.from_env()
     print_config_summary(config)
     return config
 
@@ -1207,9 +1253,11 @@ def _run(argv: list[str] | None = None) -> int:
     dry_run = args.dry_run
 
     logging.basicConfig(level=logging.INFO)
+    if args.setup:
+        return 0 if _run_setup_wizard() else 1
     _print_run_banners(dry_run, args.include_reconciled)
 
-    config = _load_config()
+    config = _load_config(interactive=not args.batch)
     if config is None:
         return 1
 

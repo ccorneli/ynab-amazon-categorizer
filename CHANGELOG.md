@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Interactive setup that creates `.env`: offered on first run when no `.env` exists, or run any time with `--setup`. Validates the API key, lists budgets and accounts to pick from (or accepts a pasted ID or YNAB URL), confirms the Amazon domain, and writes the file with owner-only permissions
+- `AMAZON_DOMAIN` documented in `.env.example` and the README
+
 ## [2.5.1] - 2026-09-04
 
 ### Fixed

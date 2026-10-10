@@ -63,6 +63,13 @@ depends_on = [
 ]
 
 [[modules]]
+path = "ynab_amazon_categorizer.setup_wizard"
+depends_on = [
+    "ynab_amazon_categorizer.exceptions",
+    "ynab_amazon_categorizer.ynab_client",
+]
+
+[[modules]]
 path = "ynab_amazon_categorizer.cli"
 depends_on = [
     "ynab_amazon_categorizer",
@@ -73,6 +80,7 @@ depends_on = [
     "ynab_amazon_categorizer.memo_generator",
     "ynab_amazon_categorizer.models",
     "ynab_amazon_categorizer.payloads",
+    "ynab_amazon_categorizer.setup_wizard",
     "ynab_amazon_categorizer.tax",
     "ynab_amazon_categorizer.transaction_matcher",
     "ynab_amazon_categorizer.transactions",
