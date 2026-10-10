@@ -39,7 +39,7 @@ from .payloads import (
     build_single_payload,
     build_split_payload,
 )
-from .setup_wizard import DEFAULT_AMAZON_DOMAIN, ENV_FILENAME, run_setup
+from .setup_wizard import ENV_FILENAME, run_setup
 from .tax import tax_rate_for_category as _tax_rate_for_category
 from .transaction_matcher import TransactionMatcher
 from .transactions import fetch_amazon_transactions
@@ -1094,7 +1094,7 @@ def _run_setup_wizard() -> bool:
             _prompt_line,
             _prompt_secret,
             Path.cwd() / ENV_FILENAME,
-            current_amazon_domain=os.getenv("AMAZON_DOMAIN", DEFAULT_AMAZON_DOMAIN),
+            current_amazon_domain=os.getenv("AMAZON_DOMAIN"),
         )
     except _FETCH_ERRORS as exc:
         logger.error("Setup failed: %s", exc)

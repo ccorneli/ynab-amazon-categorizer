@@ -14,8 +14,10 @@ from ynab_amazon_categorizer.setup_wizard import (
     extract_budget_id,
     mask_secret,
     normalize_amazon_domain,
+    read_env_file,
     render_env,
     run_setup,
+    write_env_file,
 )
 
 BUDGET = "12345678-90ab-cdef-1234-567890abcdef"
@@ -68,7 +70,7 @@ def _run(
     tmp_path: Path,
     answers: list[str],
     secrets: list[str] | None = None,
-    current_amazon_domain: str = "amazon.ca",
+    current_amazon_domain: str | None = "amazon.ca",
 ) -> tuple[SetupValues | None, dict[str, str], Path]:
     env_path = tmp_path / ".env"
     environ: dict[str, str] = {}
@@ -211,24 +213,41 @@ def test_run_setup_reasks_rejected_api_key(tmp_path: Path) -> None:
     assert values.api_key == API_KEY
 
 
-def test_run_setup_rejects_non_amazon_domain(tmp_path: Path) -> None:
-    """Non-Amazon domains are refused until a valid one is entered."""
-    values, _, _ = _run(tmp_path, ["", "", "example.com", "amazon.es", ""])
+def test_run_setup_confirms_unlisted_domain(tmp_path: Path) -> None:
+    """Unlisted domains need confirmation; declining asks again."""
+    values, _, _ = _run(
+        tmp_path,
+        ["", "", "example.com", "", "amazon.es", "y", ""],
+    )
 
     assert values is not None
     assert values.amazon_domain == "amazon.es"
 
 
 def test_run_setup_uses_current_domain_as_default(tmp_path: Path) -> None:
-    """An existing AMAZON_DOMAIN is offered as the default."""
+    """An existing unlisted AMAZON_DOMAIN is the default but still confirmed."""
     values, _, _ = _run(
         tmp_path,
-        ["", "", "", ""],
+        ["", "", "", "y", ""],
         current_amazon_domain="amazon.com.mx",
     )
 
     assert values is not None
     assert values.amazon_domain == "amazon.com.mx"
+
+
+def test_run_setup_declining_current_unlisted_domain_asks_again(
+    tmp_path: Path,
+) -> None:
+    """Declining an unlisted existing domain asks for the site again."""
+    values, _, _ = _run(
+        tmp_path,
+        ["", "", "", "", "3", ""],
+        current_amazon_domain="amazon.attacker.example",
+    )
+
+    assert values is not None
+    assert values.amazon_domain == "amazon.ca"
 
 
 def test_run_setup_declined_save_writes_nothing(tmp_path: Path) -> None:
@@ -252,3 +271,145 @@ def test_run_setup_keeps_existing_file_unless_confirmed(tmp_path: Path) -> None:
     values, _, _ = _run(tmp_path, ["y", "", "", "", ""])
     assert values is not None
     assert f"YNAB_BUDGET_ID={BUDGET}" in env_path.read_text(encoding="utf-8")
+
+
+def test_run_setup_rejects_account_from_other_budget(tmp_path: Path) -> None:
+    """A pasted account ID that isn't open in the chosen budget is asked again."""
+    values, _, _ = _run(
+        tmp_path,
+        ["", "closed-acct", "foreign-acct", ACCOUNT, "", ""],
+    )
+
+    assert values is not None
+    assert values.account_id == ACCOUNT
+
+
+def _write_existing_env(env_path: Path) -> None:
+    env_path.write_text(
+        "# my notes\n"
+        f"YNAB_API_KEY={API_KEY}\n"
+        f"export YNAB_BUDGET_ID={OTHER_BUDGET}\n"
+        "OTHER_SETTING=keep me\n"
+        f"YNAB_ACCOUNT_ID={ACCOUNT}\n"
+        "AMAZON_DOMAIN=amazon.co.uk\n",
+        encoding="utf-8",
+    )
+
+
+def test_run_setup_reconfigure_keeps_existing_values(tmp_path: Path) -> None:
+    """Re-running setup offers the current .env values; Enter keeps them."""
+    env_path = tmp_path / ".env"
+    _write_existing_env(env_path)
+
+    values, _, _ = _run(
+        tmp_path,
+        ["y", "", "", "", ""],
+        secrets=[""],
+        current_amazon_domain=None,
+    )
+
+    assert values == SetupValues(API_KEY, OTHER_BUDGET, ACCOUNT, "amazon.co.uk")
+    content = env_path.read_text(encoding="utf-8")
+    assert content.startswith("# my notes\n")
+    assert "OTHER_SETTING=keep me\n" in content
+    assert f"export YNAB_BUDGET_ID={OTHER_BUDGET}\n" in content
+
+
+def test_run_setup_environment_domain_overrides_file(tmp_path: Path) -> None:
+    """An exported AMAZON_DOMAIN wins over the .env value, like Config does."""
+    _write_existing_env(tmp_path / ".env")
+
+    values, _, _ = _run(
+        tmp_path,
+        ["y", "", "", "", ""],
+        secrets=[""],
+        current_amazon_domain="amazon.de",
+    )
+
+    assert values is not None
+    assert values.amazon_domain == "amazon.de"
+
+
+def test_read_env_file_missing(tmp_path: Path) -> None:
+    """A missing file reads as empty."""
+    assert read_env_file(tmp_path / ".env") == ({}, "")
+
+
+def test_render_env_updates_in_place_and_drops_duplicates() -> None:
+    """Managed keys are rewritten once; other lines are untouched."""
+    existing = "# comment\nYNAB_API_KEY=old\nYNAB_API_KEY=older\n\nEXTRA='x'"
+    content = render_env(SetupValues(API_KEY, BUDGET, None, "amazon.com"), existing)
+
+    assert content == (
+        "# comment\n"
+        f"YNAB_API_KEY={API_KEY}\n"
+        "\n"
+        "EXTRA='x'\n"
+        f"YNAB_BUDGET_ID={BUDGET}\n"
+        "YNAB_ACCOUNT_ID=none\n"
+        "AMAZON_DOMAIN=amazon.com\n"
+    )
+
+
+def test_write_env_file_tightens_existing_permissions(tmp_path: Path) -> None:
+    """Overwriting a world-readable .env never leaves the new key readable."""
+    env_path = tmp_path / ".env"
+    env_path.write_text("OLD=1\n", encoding="utf-8")
+    env_path.chmod(0o644)
+
+    write_env_file(env_path, "NEW=1\n")
+
+    assert env_path.read_text(encoding="utf-8") == "NEW=1\n"
+    assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
+    assert [p.name for p in tmp_path.iterdir()] == [".env"]
+
+
+def test_write_env_file_replaces_symlink(tmp_path: Path) -> None:
+    """A symlinked .env is replaced, not written through."""
+    target = tmp_path / "target"
+    target.write_text("TARGET=1\n", encoding="utf-8")
+    env_path = tmp_path / ".env"
+    env_path.symlink_to(target)
+
+    write_env_file(env_path, "NEW=1\n")
+
+    assert not env_path.is_symlink()
+    assert target.read_text(encoding="utf-8") == "TARGET=1\n"
+
+
+def test_run_setup_reads_quoted_values_with_inline_comments(tmp_path: Path) -> None:
+    """Values are parsed like python-dotenv, so quotes and comments are dropped."""
+    (tmp_path / ".env").write_text(
+        f'YNAB_API_KEY="{API_KEY}"\n'
+        f"YNAB_BUDGET_ID='{OTHER_BUDGET}'  # household\n"
+        f'YNAB_ACCOUNT_ID="{ACCOUNT}" # visa only\n',
+        encoding="utf-8",
+    )
+
+    values, _, _ = _run(tmp_path, ["y", "", "", "", ""], secrets=[""])
+
+    assert values is not None
+    assert values.budget_id == OTHER_BUDGET
+    assert values.account_id == ACCOUNT
+
+
+def test_render_env_keeps_multiline_values_intact() -> None:
+    """A managed-looking line inside another multiline value is not touched."""
+    existing = 'NOTES="first\nYNAB_API_KEY=example\nlast"\nYNAB_API_KEY=old\n'
+    content = render_env(SetupValues(API_KEY, BUDGET, None, "amazon.com"), existing)
+
+    assert content.startswith('NOTES="first\nYNAB_API_KEY=example\nlast"\n')
+    assert f"YNAB_API_KEY={API_KEY}\n" in content
+    assert "YNAB_API_KEY=old" not in content
+
+
+def test_run_setup_keeps_budget_when_env_has_no_api_key(tmp_path: Path) -> None:
+    """A .env with a budget but no key still offers that budget and account."""
+    (tmp_path / ".env").write_text(
+        f"YNAB_BUDGET_ID={OTHER_BUDGET}\nYNAB_ACCOUNT_ID={ACCOUNT}\n",
+        encoding="utf-8",
+    )
+
+    values, _, _ = _run(tmp_path, ["y", "", "", "", ""])
+
+    assert values == SetupValues(API_KEY, OTHER_BUDGET, ACCOUNT, "amazon.ca")

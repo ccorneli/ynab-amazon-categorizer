@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Interactive setup that creates `.env`: offered on first run when no `.env` exists, or run any time with `--setup`. Validates the API key, lists budgets and accounts to pick from (or accepts a pasted ID or YNAB URL), confirms the Amazon domain, and writes the file with owner-only permissions
 - `AMAZON_DOMAIN` documented in `.env.example` and the README
+- Re-running `--setup` offers the existing `.env` values as defaults and updates the file in place, preserving comments and other keys
+
+### Fixed
+
+- Setup writes `.env` atomically through a new owner-only file, so an existing world-readable `.env` never exposes the new API key, and a symlinked `.env` is replaced rather than written through
+- Setup only accepts a pasted account ID that is an open account in the chosen budget
+- Setup defaults the Amazon domain to the value in the existing `.env` instead of resetting it to `amazon.ca`
+- Setup asks for confirmation before using an Amazon domain that isn't one of the common sites
 
 ## [2.5.1] - 2026-09-04
 
