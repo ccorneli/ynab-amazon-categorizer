@@ -1,5 +1,6 @@
 """Tests for extracted CLI helper functions."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
@@ -24,7 +25,11 @@ from ynab_amazon_categorizer.cli import (
     resolve_memo,
 )
 from ynab_amazon_categorizer.config import Config
-from ynab_amazon_categorizer.exceptions import YNABAPIError, YNABResponseError
+from ynab_amazon_categorizer.exceptions import (
+    ConfigurationError,
+    YNABAPIError,
+    YNABResponseError,
+)
 from ynab_amazon_categorizer.memo_generator import (
     MemoGenerator,
     build_batch_memo,
@@ -1460,3 +1465,74 @@ def test_main_handles_terminal_interruption(
 
     assert exit_code == 130
     assert "Operation cancelled" in capsys.readouterr().out
+
+
+# --- setup wizard wiring ---
+
+
+def _no_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        cli_module.Config, "from_env", Mock(side_effect=ConfigurationError("missing"))
+    )
+
+
+def test_load_config_skips_setup_when_env_file_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An existing .env is never replaced by the automatic offer."""
+    (tmp_path / ".env").write_text("YNAB_API_KEY=x\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    _no_config(monkeypatch)
+    wizard = Mock()
+    monkeypatch.setattr(cli_module, "_run_setup_wizard", wizard)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+
+    assert cli_module._load_config() is None
+    wizard.assert_not_called()
+
+
+def test_load_config_skips_setup_when_not_interactive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Batch runs fail fast instead of prompting."""
+    monkeypatch.chdir(tmp_path)
+    _no_config(monkeypatch)
+    wizard = Mock()
+    monkeypatch.setattr(cli_module, "_run_setup_wizard", wizard)
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+
+    assert cli_module._load_config(interactive=False) is None
+    wizard.assert_not_called()
+
+
+def test_load_config_runs_setup_when_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """With no .env at a terminal, accepting the offer runs setup and reloads."""
+    monkeypatch.chdir(tmp_path)
+    config = Config(api_key="key", budget_id="budget-1234")
+    monkeypatch.setattr(
+        cli_module.Config,
+        "from_env",
+        Mock(side_effect=[ConfigurationError("missing"), config]),
+    )
+    monkeypatch.setattr(cli_module, "_run_setup_wizard", Mock(return_value=True))
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _msg: "")
+    monkeypatch.setattr(cli_module.sys.stdin, "isatty", lambda: True)
+
+    assert cli_module._load_config() is config
+
+
+def test_setup_flag_runs_wizard_and_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--setup only runs the wizard."""
+    wizard = Mock(return_value=True)
+    monkeypatch.setattr(cli_module, "_run_setup_wizard", wizard)
+    load = Mock()
+    monkeypatch.setattr(cli_module, "_load_config", load)
+
+    assert cli_module.main(["--setup"]) == 0
+    wizard.assert_called_once()
+    load.assert_not_called()

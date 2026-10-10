@@ -58,13 +58,29 @@ uv pip install -e .
 
 After installation, you'll need to set up your YNAB API credentials:
 
+### Guided Setup (Recommended)
+Run the tool in the folder you want to use. If there is no `.env` there, it
+offers to create one; you can also run the setup at any time with:
+```bash
+ynab-amazon-categorizer --setup
+```
+Setup asks for your API key (hidden input), lets you pick a budget from your
+YNAB account (or paste a budget ID or any YNAB budget URL), an account (or all
+accounts), and confirms your Amazon site. It writes `.env` readable only by
+you.
+
 ### Configuration File (.env)
-Create a `.env` file in your working directory with your credentials:
+Or create a `.env` file in your working directory yourself (see
+`.env.example`):
 ```
 YNAB_API_KEY=your_api_key_here
 YNAB_BUDGET_ID=your_budget_id_here
 YNAB_ACCOUNT_ID=none
+AMAZON_DOMAIN=amazon.ca
 ```
+
+`AMAZON_DOMAIN` is the Amazon site you order from (e.g. `amazon.com`,
+`amazon.co.uk`); it is only used to build the order links in memos.
 
 For predictable credential selection, only the current working directory is
 checked; parent directories are not searched for `.env` files.

@@ -46,6 +46,7 @@ Current modules:
 - `src/ynab_amazon_categorizer/memo_generator.py` - memo and order-link generation.
 - `src/ynab_amazon_categorizer/ynab_client.py` - YNAB API communication.
 - `src/ynab_amazon_categorizer/config.py` - environment config loading/validation.
+- `src/ynab_amazon_categorizer/setup_wizard.py` - interactive `.env` creation (`--setup` / first run).
 - `src/ynab_amazon_categorizer/models.py` - typed domain and YNAB payload models.
 - `src/ynab_amazon_categorizer/payloads.py` - minimal YNAB update construction.
 - `src/ynab_amazon_categorizer/transactions.py` - transaction validation and Amazon-payee filtering.
@@ -78,9 +79,12 @@ Create a `.env` with:
 YNAB_API_KEY=your_api_key_here
 YNAB_BUDGET_ID=your_budget_id_here
 YNAB_ACCOUNT_ID=none
+AMAZON_DOMAIN=amazon.ca
 ```
 
-`YNAB_ACCOUNT_ID` is optional (`none` means all accounts).
+`YNAB_ACCOUNT_ID` is optional (`none` means all accounts). `AMAZON_DOMAIN` is
+optional (default `amazon.ca`) and only affects memo order links.
+`ynab-amazon-categorizer --setup` (or the first-run prompt) creates this file.
 
 ## Dependencies
 
