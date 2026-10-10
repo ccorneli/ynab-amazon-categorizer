@@ -1,5 +1,6 @@
 """Interactive first-run setup that writes a local .env file."""
 
+import io
 import os
 import tempfile
 from collections.abc import Callable, MutableMapping
@@ -7,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
+
+from dotenv.parser import Binding, parse_stream
 
 from .exceptions import YNABAuthError, YNABNotFoundError
 from .ynab_client import YNABClient
@@ -278,40 +281,35 @@ def _prompt_amazon_domain(ask: Ask, current: str) -> str:
             return domain
 
 
-def _parse_assignment(raw_line: str) -> tuple[str, str] | None:
-    """Return (key, value) for a KEY=VALUE line, or None for comments/blanks."""
-    line = raw_line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        return None
-    key, _, value = line.removeprefix("export ").partition("=")
-    return key.strip(), value.strip().strip("'\"")
+def _parse_env(text: str) -> list[Binding]:
+    """Parse .env text the same way python-dotenv does when loading it."""
+    return list(parse_stream(io.StringIO(text)))
 
 
-def read_env_file(path: Path) -> tuple[dict[str, str], list[str]]:
+def read_env_file(path: Path) -> tuple[dict[str, str], str]:
     """Read an existing .env.
 
-    Returns the parsed KEY=VALUE pairs and every original line, so the file
-    can later be updated in place.
+    Returns the parsed KEY=VALUE pairs and the original text, so the file can
+    later be updated in place.
     """
     if not path.is_file():
-        return {}, []
-    lines = path.read_text(encoding="utf-8").splitlines()
-    values: dict[str, str] = {}
-    for raw_line in lines:
-        parsed = _parse_assignment(raw_line)
-        if parsed:
-            values[parsed[0]] = parsed[1]
-    return values, lines
+        return {}, ""
+    text = path.read_text(encoding="utf-8")
+    values = {
+        binding.key: binding.value
+        for binding in _parse_env(text)
+        if binding.key is not None and binding.value is not None
+    }
+    return values, text
 
 
 def _existing_values(file_values: dict[str, str]) -> SetupValues | None:
-    """Build SetupValues from a parsed .env, or None if it has no API key."""
-    api_key = file_values.get("YNAB_API_KEY", "")
-    if not api_key:
+    """Build SetupValues from a parsed .env, or None if it sets none of them."""
+    if not any(key in file_values for key in _MANAGED_KEYS):
         return None
     account_id = file_values.get("YNAB_ACCOUNT_ID", "")
     return SetupValues(
-        api_key,
+        file_values.get("YNAB_API_KEY", ""),
         file_values.get("YNAB_BUDGET_ID", ""),
         account_id if account_id.lower() not in ("", "none") else None,
         file_values.get("AMAZON_DOMAIN", ""),
@@ -327,15 +325,18 @@ def _managed_values(values: SetupValues) -> dict[str, str]:
     }
 
 
-def render_env(values: SetupValues, existing_lines: list[str] | None = None) -> str:
+_MANAGED_KEYS = ("YNAB_API_KEY", "YNAB_BUDGET_ID", "YNAB_ACCOUNT_ID", "AMAZON_DOMAIN")
+
+
+def render_env(values: SetupValues, existing_text: str = "") -> str:
     """Render collected values as .env content.
 
-    With ``existing_lines``, managed keys are updated where they already are and
-    every other line (comments, blanks, other keys) is kept unchanged; managed
-    keys that were missing are appended.
+    With ``existing_text``, managed keys are updated where they already are and
+    everything else (comments, blanks, other keys, multiline values) is kept
+    unchanged; managed keys that were missing are appended.
     """
     managed = _managed_values(values)
-    if not existing_lines:
+    if not existing_text:
         body = "".join(f"{key}={value}\n" for key, value in managed.items())
         return (
             "# YNAB Amazon Categorizer configuration (created by setup).\n"
@@ -344,19 +345,23 @@ def render_env(values: SetupValues, existing_lines: list[str] | None = None) -> 
         )
     output: list[str] = []
     written: set[str] = set()
-    for raw_line in existing_lines:
-        parsed = _parse_assignment(raw_line)
-        if parsed is None or parsed[0] not in managed:
-            output.append(raw_line)
+    for binding in _parse_env(existing_text):
+        original = binding.original.string
+        key = binding.key
+        if key is None or key not in managed:
+            output.append(original)
             continue
-        key = parsed[0]
         if key in written:
             continue  # drop duplicate assignments of a managed key
-        prefix = "export " if raw_line.strip().startswith("export ") else ""
-        output.append(f"{prefix}{key}={managed[key]}")
+        prefix = "export " if original.lstrip().startswith("export ") else ""
+        output.append(f"{prefix}{key}={managed[key]}\n")
         written.add(key)
-    output.extend(f"{k}={v}" for k, v in managed.items() if k not in written)
-    return "".join(f"{line}\n" for line in output)
+    content = "".join(output)
+    if not content.endswith("\n"):
+        content += "\n"
+    return content + "".join(
+        f"{key}={value}\n" for key, value in managed.items() if key not in written
+    )
 
 
 def write_env_file(path: Path, content: str) -> None:
@@ -413,13 +418,13 @@ def run_setup(  # noqa: PLR0913
         print("Setup cancelled; existing file left unchanged.")
         return None
 
-    file_values, existing_lines = read_env_file(env_path)
+    file_values, existing_text = read_env_file(env_path)
     existing = _existing_values(file_values)
 
     api_key, budgets = _prompt_api_key(
         ask_secret,
         client_factory,
-        existing.api_key if existing else None,
+        (existing.api_key or None) if existing else None,
     )
     budget_id, account_id = _prompt_budget_and_account(
         ask,
@@ -441,7 +446,7 @@ def run_setup(  # noqa: PLR0913
         print("Setup cancelled; nothing was written.")
         return None
 
-    write_env_file(env_path, render_env(values, existing_lines))
+    write_env_file(env_path, render_env(values, existing_text))
     environ["YNAB_API_KEY"] = values.api_key
     environ["YNAB_BUDGET_ID"] = values.budget_id
     environ["YNAB_ACCOUNT_ID"] = values.account_id or "none"

@@ -318,19 +318,13 @@ def test_run_setup_environment_domain_overrides_file(tmp_path: Path) -> None:
 
 def test_read_env_file_missing(tmp_path: Path) -> None:
     """A missing file reads as empty."""
-    assert read_env_file(tmp_path / ".env") == ({}, [])
+    assert read_env_file(tmp_path / ".env") == ({}, "")
 
 
 def test_render_env_updates_in_place_and_drops_duplicates() -> None:
     """Managed keys are rewritten once; other lines are untouched."""
-    lines = [
-        "# comment",
-        "YNAB_API_KEY=old",
-        "YNAB_API_KEY=older",
-        "",
-        "EXTRA='x'",
-    ]
-    content = render_env(SetupValues(API_KEY, BUDGET, None, "amazon.com"), lines)
+    existing = "# comment\nYNAB_API_KEY=old\nYNAB_API_KEY=older\n\nEXTRA='x'"
+    content = render_env(SetupValues(API_KEY, BUDGET, None, "amazon.com"), existing)
 
     assert content == (
         "# comment\n"
@@ -367,3 +361,41 @@ def test_write_env_file_replaces_symlink(tmp_path: Path) -> None:
 
     assert not env_path.is_symlink()
     assert target.read_text(encoding="utf-8") == "TARGET=1\n"
+
+
+def test_run_setup_reads_quoted_values_with_inline_comments(tmp_path: Path) -> None:
+    """Values are parsed like python-dotenv, so quotes and comments are dropped."""
+    (tmp_path / ".env").write_text(
+        f'YNAB_API_KEY="{API_KEY}"\n'
+        f"YNAB_BUDGET_ID='{OTHER_BUDGET}'  # household\n"
+        f'YNAB_ACCOUNT_ID="{ACCOUNT}" # visa only\n',
+        encoding="utf-8",
+    )
+
+    values, _, _ = _run(tmp_path, ["y", "", "", "", ""], secrets=[""])
+
+    assert values is not None
+    assert values.budget_id == OTHER_BUDGET
+    assert values.account_id == ACCOUNT
+
+
+def test_render_env_keeps_multiline_values_intact() -> None:
+    """A managed-looking line inside another multiline value is not touched."""
+    existing = 'NOTES="first\nYNAB_API_KEY=example\nlast"\nYNAB_API_KEY=old\n'
+    content = render_env(SetupValues(API_KEY, BUDGET, None, "amazon.com"), existing)
+
+    assert content.startswith('NOTES="first\nYNAB_API_KEY=example\nlast"\n')
+    assert f"YNAB_API_KEY={API_KEY}\n" in content
+    assert "YNAB_API_KEY=old" not in content
+
+
+def test_run_setup_keeps_budget_when_env_has_no_api_key(tmp_path: Path) -> None:
+    """A .env with a budget but no key still offers that budget and account."""
+    (tmp_path / ".env").write_text(
+        f"YNAB_BUDGET_ID={OTHER_BUDGET}\nYNAB_ACCOUNT_ID={ACCOUNT}\n",
+        encoding="utf-8",
+    )
+
+    values, _, _ = _run(tmp_path, ["y", "", "", "", ""])
+
+    assert values == SetupValues(API_KEY, OTHER_BUDGET, ACCOUNT, "amazon.ca")
