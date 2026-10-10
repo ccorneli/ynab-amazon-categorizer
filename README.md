@@ -69,6 +69,10 @@ YNAB account (or paste a budget ID or any YNAB budget URL), an account (or all
 accounts), and confirms your Amazon site. It writes `.env` readable only by
 you.
 
+Running `--setup` again with an existing `.env` offers your current values as
+defaults (press Enter to keep each one, including the API key) and updates the
+file in place, keeping comments and any other settings.
+
 ### Configuration File (.env)
 Or create a `.env` file in your working directory yourself (see
 `.env.example`):
