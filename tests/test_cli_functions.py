@@ -1668,8 +1668,8 @@ def test_handle_split_uses_invoice_amounts(
     monkeypatch.setattr(
         cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
     )
-    # paste? (default y), then per split: amount (blank = suggestion), memo y
-    responses = iter(["", "", "", "", ""])
+    # per split: amount (blank = suggestion), memo y
+    responses = iter(["", "", "", ""])
     monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
     categories = iter([("cat1", "Cat One"), ("cat2", "Cat Two")])
     monkeypatch.setattr(
@@ -1731,8 +1731,18 @@ def test_invoice_partial_charge_warns(
     assert "only part of the order" in capsys.readouterr().out
 
 
-def test_invoice_prompt_declined(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "n")
+def test_invoice_prompt_skipped_with_empty_paste(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The paste box opens straight away; an empty paste skips it."""
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: ""
+    )
+
+    def _no_line_prompt(_prompt: str) -> str:
+        raise AssertionError("no single-line prompt before the paste")
+
+    monkeypatch.setattr(cli_module, "_prompt_line", _no_line_prompt)
 
     assert (
         cli_module.prompt_for_invoice_split(_split_order(), MemoGenerator(), -21000)

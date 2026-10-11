@@ -705,12 +705,10 @@ def prompt_for_invoice_split(
     order_id = matching_order.order_id
     print("\nItem prices are on the order summary page:")
     print(f"  {memo_generator.generate_amazon_invoice_link(order_id)}")
-    answer = _prompt_line(
-        "Paste it to fill in split amounts? (y/n, default y): ",
-    ).lower()
-    if answer and answer != "y":
-        return None
-
+    print(
+        "Open it, select all and copy, then paste it below to fill in split"
+        " amounts. Submit it empty to enter amounts yourself.",
+    )
     text = get_multiline_input_with_custom_submit("Paste here: ")
     if text is None or not text.strip() or text.strip().lower() == "skip":
         return None
