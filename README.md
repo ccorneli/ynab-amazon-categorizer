@@ -186,7 +186,7 @@ removes the per-transaction prompting.
 ### Keyboard Shortcuts
 - **Tab**: Auto-complete category names
 - **Enter**: Accept defaults (categorize, use suggested memo, confirm update)
-- **Alt+Enter**: Submit multiline input (Amazon orders data, custom memos)
+- **Alt+Enter** (Mac: **Esc** then **Return**): Submit multiline input (Amazon orders data, custom memos). Esc then Enter works on every platform
 - **Ctrl+C**: Cancel current operation
 
 ## Example Output

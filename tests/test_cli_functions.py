@@ -1536,3 +1536,31 @@ def test_setup_flag_runs_wizard_and_exits(monkeypatch: pytest.MonkeyPatch) -> No
     assert cli_module.main(["--setup"]) == 0
     wizard.assert_called_once()
     load.assert_not_called()
+
+
+# --- multiline submit hint tests ---
+
+
+def test_submit_key_hint_on_mac_names_esc_then_return() -> None:
+    hint = cli_module.submit_key_hint("darwin")
+    assert hint.startswith("Esc then Return")
+    assert "Alt" not in hint
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_submit_key_hint_elsewhere_names_alt_enter(platform: str) -> None:
+    hint = cli_module.submit_key_hint(platform)
+    assert hint.startswith("Alt+Enter")
+
+
+def test_multiline_input_prints_platform_submit_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli_module.sys, "platform", "darwin")
+    monkeypatch.setattr(cli_module, "prompt", lambda *_args, **_kwargs: "pasted")
+
+    assert cli_module.get_multiline_input_with_custom_submit() == "pasted"
+    out = capsys.readouterr().out
+    assert "Submit by pressing Esc then Return" in out
+    assert "Alt+Enter" not in out
