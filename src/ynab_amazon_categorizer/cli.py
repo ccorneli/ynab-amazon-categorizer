@@ -70,13 +70,24 @@ def _env_flag(var_name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "y")
 
 
-def prompt_for_amazon_orders_data() -> list[Order] | None:
+def _print_paste_source(what: str, url: str, skip_hint: str) -> None:
+    print(f"\nPaste {what} from here:")
+    print(f"  {url}")
+    print(skip_hint)
+
+
+def prompt_for_amazon_orders_data(page_url: str | None = None) -> list[Order] | None:
     """Prompt user to paste Amazon orders page data."""
     print("\n--- Amazon Orders Data Entry ---")
     print("You can copy and paste the content from your Amazon orders page.")
     print("This will help automatically extract order details and item information.")
 
-    print("\nPaste Amazon orders page content:")
+    if page_url:
+        _print_paste_source(
+            "Amazon orders page content", page_url, "Submit it empty to skip."
+        )
+    else:
+        print("\nPaste Amazon orders page content:")
 
     orders_text = get_multiline_input_with_custom_submit("Paste here: ")
 
@@ -703,11 +714,10 @@ def prompt_for_invoice_split(
     if matching_order is None or not matching_order.order_id:
         return None
     order_id = matching_order.order_id
-    print("\nItem prices are on the order summary page:")
-    print(f"  {memo_generator.generate_amazon_invoice_link(order_id)}")
-    print(
-        "Open it, select all and copy, then paste it below to fill in split"
-        " amounts. Submit it empty to enter amounts yourself.",
+    _print_paste_source(
+        "the order summary page (item prices for the split amounts)",
+        memo_generator.generate_amazon_invoice_link(order_id),
+        "Submit it empty to enter amounts yourself.",
     )
     text = get_multiline_input_with_custom_submit("Paste here: ")
     if text is None or not text.strip() or text.strip().lower() == "skip":
@@ -1261,11 +1271,7 @@ def _collect_parsed_orders(amazon_domain: str = "amazon.ca") -> list[Order] | No
     print(
         "You can paste Amazon orders page content to automatically match transactions with order details.",
     )
-    print(
-        f"Open {amazon_orders_page_url(amazon_domain)}, select all and copy."
-        " Submit the paste empty to skip.",
-    )
-    parsed_orders = prompt_for_amazon_orders_data()
+    parsed_orders = prompt_for_amazon_orders_data(amazon_orders_page_url(amazon_domain))
     if not parsed_orders:
         print("No valid orders found in provided data.")
         return parsed_orders
@@ -1296,11 +1302,11 @@ def prompt_for_amazon_transactions_data(
         " shipments, gift cards). Pasting Your Payments > Transactions lets each"
         " YNAB charge match its exact Amazon charge.",
     )
-    print(
-        f"Open {amazon_transactions_page_url(amazon_domain)}, select all and copy."
-        " Submit the paste empty to skip.",
+    _print_paste_source(
+        "Amazon transactions page content",
+        amazon_transactions_page_url(amazon_domain),
+        "Submit it empty to skip and match by order totals.",
     )
-    print("\nPaste Amazon transactions page content:")
     text = get_multiline_input_with_custom_submit("Paste here: ")
     if text is None or not text.strip() or text.strip().lower() == "skip":
         print("Skipping Amazon transactions data; matching by order totals.")

@@ -1423,7 +1423,7 @@ def test_main_batch_dry_run_smoke(
     monkeypatch.setattr(cli_module, "YNABClient", lambda *_args: client)
     monkeypatch.setattr(cli_module, "_prompt_line", lambda _message: "y")
     monkeypatch.setattr(
-        cli_module, "prompt_for_amazon_orders_data", lambda: [_batch_order()]
+        cli_module, "prompt_for_amazon_orders_data", lambda *_a: [_batch_order()]
     )
     monkeypatch.setattr(
         cli_module, "prompt_for_amazon_transactions_data", lambda *_args: None
@@ -1616,8 +1616,14 @@ def test_collect_parsed_orders_uses_transactions_page_charges(
     assert all(o.items for o in orders)
     out = capsys.readouterr().out
     assert "2 card transactions (0 refunds; 1 gift-card payments ignored)" in out
-    assert "Open https://www.amazon.com/gp/css/order-history," in out
-    assert "Open https://www.amazon.com/cpe/yourpayments/transactions," in out
+    assert (
+        "Paste Amazon orders page content from here:\n"
+        "  https://www.amazon.com/gp/css/order-history\n"
+    ) in out
+    assert (
+        "Paste Amazon transactions page content from here:\n"
+        "  https://www.amazon.com/cpe/yourpayments/transactions\n"
+    ) in out
 
 
 def test_collect_parsed_orders_without_transactions_page_keeps_totals(
