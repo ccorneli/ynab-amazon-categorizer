@@ -1644,3 +1644,97 @@ def test_display_matched_order_labels_charges(
     cli_module.display_matched_order(order, MemoGenerator("amazon.com"))
 
     assert "Charged: $4.19" in capsys.readouterr().out
+
+
+_INVOICE_PAGE = """
+Order # 702-1234567-7654321
+Item(s) Subtotal: $20.00
+Estimated tax to be collected: $1.00
+Grand Total: $21.00
+Widget A
+Sold by: Seller A
+$15.00
+Widget B
+Sold by: Seller B
+$5.00
+"""
+
+
+def test_handle_split_uses_invoice_amounts(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Pasting the order summary fills each split with the item's share."""
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
+    )
+    # paste? (default y), then per split: amount (blank = suggestion), memo y
+    responses = iter(["", "", "", "", ""])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
+    categories = iter([("cat1", "Cat One"), ("cat2", "Cat Two")])
+    monkeypatch.setattr(
+        cli_module, "prompt_for_category_selection", lambda *a, **k: next(categories)
+    )
+    memo_generator = MemoGenerator("amazon.com")
+
+    invoice = cli_module.prompt_for_invoice_split(
+        _split_order(), memo_generator, -21000
+    )
+    assert invoice is not None
+    order, amounts = invoice
+    result = handle_split(
+        {"amount": -21000}, order, memo_generator, Mock(), {}, amounts
+    )
+
+    assert amounts == [15.75, 5.25]
+    assert result is not None
+    assert [s["amount"] for s in result] == [-15750, -5250]
+    assert "Widget B" in str(result[1]["memo"])
+    out = capsys.readouterr().out
+    assert "summary/print.html?orderID=702-1234567-7654321" in out
+
+
+def test_invoice_for_other_order_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "get_multiline_input_with_custom_submit",
+        lambda _p: _INVOICE_PAGE.replace("702-1234567-7654321", "702-0000000-0000000"),
+    )
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+
+    assert (
+        cli_module.prompt_for_invoice_split(_split_order(), MemoGenerator(), -21000)
+        is None
+    )
+    assert "not 702-1234567-7654321" in capsys.readouterr().out
+
+
+def test_invoice_partial_charge_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A split-shipment charge gets each item's share of the whole order."""
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
+    )
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+
+    invoice = cli_module.prompt_for_invoice_split(
+        _split_order(), MemoGenerator(), -15750
+    )
+
+    assert invoice is not None
+    assert invoice[1] == [15.75, 5.25]
+    assert "only part of the order" in capsys.readouterr().out
+
+
+def test_invoice_prompt_declined(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "n")
+
+    assert (
+        cli_module.prompt_for_invoice_split(_split_order(), MemoGenerator(), -21000)
+        is None
+    )
