@@ -343,6 +343,15 @@ def render_env(values: SetupValues, existing_text: str = "") -> str:
             "# Contains your API key: keep this file private and out of git.\n"
             f"{body}"
         )
+    return set_env_values(existing_text, managed)
+
+
+def set_env_values(existing_text: str, managed: dict[str, str]) -> str:
+    """Set keys in .env text, keeping everything else as it is.
+
+    Keys are updated where they already are (dropping duplicates) and appended
+    when missing.
+    """
     output: list[str] = []
     written: set[str] = set()
     for binding in _parse_env(existing_text):
@@ -357,11 +366,17 @@ def render_env(values: SetupValues, existing_text: str = "") -> str:
         output.append(f"{prefix}{key}={managed[key]}\n")
         written.add(key)
     content = "".join(output)
-    if not content.endswith("\n"):
+    if content and not content.endswith("\n"):
         content += "\n"
     return content + "".join(
         f"{key}={value}\n" for key, value in managed.items() if key not in written
     )
+
+
+def save_env_value(path: Path, key: str, value: str) -> None:
+    """Set one key in the .env at path (created if missing), keeping the rest."""
+    _values, text = read_env_file(path)
+    write_env_file(path, set_env_values(text, {key: value}))
 
 
 def write_env_file(path: Path, content: str) -> None:

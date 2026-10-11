@@ -1680,6 +1680,7 @@ def test_handle_split_uses_invoice_amounts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Pasting the order summary fills each split with the item's share."""
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.05")
     monkeypatch.setattr(
         cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
     )
@@ -1732,6 +1733,7 @@ def test_invoice_partial_charge_warns(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A split-shipment charge gets each item's share of the whole order."""
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.05")
     monkeypatch.setattr(
         cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
     )
@@ -1865,3 +1867,54 @@ def test_process_interactively_prints_summary_after_quit(
     assert "--- Summary (dry run: nothing sent to YNAB) ---" in out
     assert "2024-01-01      -$1.00  skipped: by you" in out
     assert "0 would update, 1 skipped, 2 not reached" in out
+
+
+def test_offer_tax_rate_update_saves_to_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("# keep me\nYNAB_API_KEY=k\n", encoding="utf-8")
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.09")
+    monkeypatch.setitem(cli_module._tax_rate_offer, "declined", False)
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "y")
+
+    cli_module._offer_tax_rate_update(0.06625)
+
+    assert "taxed at 6.625%; your setting is 9%" in capsys.readouterr().out
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == (
+        "# keep me\nYNAB_API_KEY=k\nYNAB_DEFAULT_TAX_RATE=0.06625\n"
+    )
+    assert cli_module.default_tax_rate() == 0.06625
+
+
+def test_offer_tax_rate_update_asks_once_after_decline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.09")
+    monkeypatch.setitem(cli_module._tax_rate_offer, "declined", False)
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        cli_module, "_prompt_line", lambda prompt: prompts.append(prompt) or "n"
+    )
+
+    cli_module._offer_tax_rate_update(0.06625)
+    cli_module._offer_tax_rate_update(0.07)
+
+    assert len(prompts) == 1
+    assert not (tmp_path / ".env").exists()
+
+
+@pytest.mark.parametrize("order_rate", [None, 0.0, 0.0902])
+def test_offer_tax_rate_update_silent_when_not_needed(
+    monkeypatch: pytest.MonkeyPatch,
+    order_rate: float | None,
+) -> None:
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.09")
+    monkeypatch.setitem(cli_module._tax_rate_offer, "declined", False)
+    monkeypatch.setattr(cli_module, "_prompt_line", Mock(side_effect=AssertionError))
+
+    cli_module._offer_tax_rate_update(order_rate)

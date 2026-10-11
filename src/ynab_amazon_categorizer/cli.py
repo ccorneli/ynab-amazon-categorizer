@@ -21,7 +21,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 from . import __version__
-from .amazon_invoice import allocate_amount, parse_order_summary
+from .amazon_invoice import allocate_amount, effective_tax_rate, parse_order_summary
 from .amazon_parser import AmazonParser, Order
 from .amazon_transactions import (
     AmazonCharge,
@@ -50,7 +50,8 @@ from .payloads import (
     build_split_payload,
 )
 from .run_summary import RunSummary, Status, describe_update
-from .setup_wizard import ENV_FILENAME, run_setup
+from .setup_wizard import ENV_FILENAME, run_setup, save_env_value
+from .tax import default_tax_rate
 from .tax import tax_rate_for_category as _tax_rate_for_category
 from .transaction_matcher import TransactionMatcher
 from .transactions import fetch_amazon_transactions
@@ -702,6 +703,42 @@ def handle_split(
     return None
 
 
+_TAX_RATE_TOLERANCE = 0.0005
+_tax_rate_offer = {"declined": False}
+
+
+def _offer_tax_rate_update(order_rate: float | None) -> None:
+    """Offer to save an order's actual tax rate as the default in .env.
+
+    Asked at most until declined once per run; a tax-free order is ignored.
+    """
+    current = default_tax_rate()
+    if (
+        not order_rate
+        or _tax_rate_offer["declined"]
+        or abs(order_rate - current) < _TAX_RATE_TOLERANCE
+    ):
+        return
+    value = f"{order_rate:.5f}".rstrip("0")
+    print(
+        f"This order was taxed at {order_rate * 100:.4g}%; your setting is"
+        f" {current * 100:.4g}% (used when you type base prices).",
+    )
+    answer = _prompt_line(
+        f"Save YNAB_DEFAULT_TAX_RATE={value} to .env? (y/n, default n): ",
+    ).lower()
+    if answer != "y":
+        _tax_rate_offer["declined"] = True
+        return
+    try:
+        save_env_value(Path.cwd() / ENV_FILENAME, "YNAB_DEFAULT_TAX_RATE", value)
+    except OSError as exc:
+        print(f"Could not update .env: {exc}")
+        return
+    os.environ["YNAB_DEFAULT_TAX_RATE"] = value
+    print(f"Saved. Base prices now use {order_rate * 100:.4g}% tax.")
+
+
 def prompt_for_invoice_split(
     matching_order: Order | None,
     memo_generator: MemoGenerator,
@@ -749,6 +786,7 @@ def prompt_for_invoice_split(
     print("Amount per item (price plus its share of tax, shipping and discounts):")
     for item, amount in zip(summary.items, amounts, strict=True):
         print(f"  ${amount:.2f}  {item.name}")
+    _offer_tax_rate_update(effective_tax_rate(summary))
     return replace(matching_order, items=[item.name for item in summary.items]), amounts
 
 

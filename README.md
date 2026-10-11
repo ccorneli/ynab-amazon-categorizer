@@ -231,6 +231,21 @@ Action? (c = categorize/split, s = skip, q = quit, default c):
 Split this transaction? (Y/n, default y):
 ```
 
+### Tax rates
+
+When you type a base price instead of pasting the order summary page, tax is
+estimated at 9%, or 4.5% for categories whose name contains "grocery". Override
+these in `.env`:
+
+```env
+YNAB_DEFAULT_TAX_RATE=0.06625
+YNAB_GROCERY_TAX_RATE=0
+```
+
+When you paste an order summary page whose tax rate differs from
+`YNAB_DEFAULT_TAX_RATE`, the tool offers to save that rate to `.env` (once per
+run). Answer n for orders that mix taxed and tax-exempt items.
+
 ## Generated Memos
 
 ### Single Item Transaction

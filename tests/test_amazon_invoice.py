@@ -2,7 +2,9 @@
 
 from ynab_amazon_categorizer.amazon_invoice import (
     InvoiceItem,
+    OrderSummary,
     allocate_amount,
+    effective_tax_rate,
     parse_order_summary,
 )
 
@@ -152,3 +154,17 @@ def test_allocate_spreads_gift_card_discount() -> None:
 def test_allocate_edge_cases() -> None:
     assert allocate_amount(10.0, []) == []
     assert allocate_amount(10.0, [0.0, 0.0]) == [0.0, 10.0]
+
+
+def test_effective_tax_rate_uses_total_before_tax() -> None:
+    summary = parse_order_summary(ORDER_SUMMARY)
+    assert summary is not None
+    assert summary.pre_tax_total == 100.82
+    assert effective_tax_rate(summary) == 0.06626
+
+
+def test_effective_tax_rate_unknown_without_tax() -> None:
+    summary = OrderSummary(
+        "1", [], subtotal=10.0, pre_tax_total=None, tax=None, grand_total=10.0
+    )
+    assert effective_tax_rate(summary) is None
