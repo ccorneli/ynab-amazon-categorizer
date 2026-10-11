@@ -31,6 +31,8 @@ from .config import Config
 from .exceptions import ConfigurationError, YNABAPIError
 from .memo_generator import (
     MemoGenerator,
+    amazon_orders_page_url,
+    amazon_transactions_page_url,
     generate_split_summary_memo,
     sanitize_memo,
 )
@@ -1171,12 +1173,13 @@ def _load_categories(
     return categories_list, category_name_map, category_id_map
 
 
-def _collect_parsed_orders() -> list[Order] | None:
+def _collect_parsed_orders(amazon_domain: str = "amazon.ca") -> list[Order] | None:
     """Optionally prompt for pasted Amazon orders data and summarize what parsed."""
     print("\n--- Optional: Amazon Orders Data ---")
     print(
         "You can paste Amazon orders page content to automatically match transactions with order details.",
     )
+    print(f"Open {amazon_orders_page_url(amazon_domain)}, select all and copy.")
     provide_orders = _prompt_line(
         "Would you like to provide Amazon orders data? (y/n, default y): ",
     ).lower()
@@ -1188,7 +1191,7 @@ def _collect_parsed_orders() -> list[Order] | None:
         print("No valid orders found in provided data.")
         return parsed_orders
 
-    charges = prompt_for_amazon_transactions_data()
+    charges = prompt_for_amazon_transactions_data(amazon_domain)
     if charges:
         parsed_orders = orders_from_charges(parsed_orders, charges)
 
@@ -1204,7 +1207,9 @@ def _collect_parsed_orders() -> list[Order] | None:
     return parsed_orders
 
 
-def prompt_for_amazon_transactions_data() -> list[AmazonCharge] | None:
+def prompt_for_amazon_transactions_data(
+    amazon_domain: str = "amazon.ca",
+) -> list[AmazonCharge] | None:
     """Optionally prompt for the Amazon transactions page, to match exact charges."""
     print("\n--- Optional: Amazon Transactions Page ---")
     print(
@@ -1212,6 +1217,7 @@ def prompt_for_amazon_transactions_data() -> list[AmazonCharge] | None:
         " shipments, gift cards). Pasting Your Payments > Transactions lets each"
         " YNAB charge match its exact Amazon charge.",
     )
+    print(f"Open {amazon_transactions_page_url(amazon_domain)}, select all and copy.")
     provide = _prompt_line(
         "Would you like to paste the Amazon transactions page? (y/n, default y): ",
     ).lower()
@@ -1330,7 +1336,7 @@ def _run(argv: list[str] | None = None) -> int:
     category_completer_instance = CategoryCompleter(categories_list)
     print(f"\nFound {len(categories_list)} usable categories. Completion enabled.")
 
-    parsed_orders = _collect_parsed_orders()
+    parsed_orders = _collect_parsed_orders(config.amazon_domain)
 
     transactions_to_process = _fetch_transactions(
         ynab_client,

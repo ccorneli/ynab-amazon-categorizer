@@ -124,6 +124,16 @@ def _format_item_details(item_details: Any) -> str | None:
     return None
 
 
+def amazon_orders_page_url(amazon_domain: str) -> str:
+    """Link to the Your Orders page to copy for the orders paste."""
+    return f"https://www.{amazon_domain}/gp/css/order-history"
+
+
+def amazon_transactions_page_url(amazon_domain: str) -> str:
+    """Link to Your Payments > Transactions to copy for the transactions paste."""
+    return f"https://www.{amazon_domain}/cpe/yourpayments/transactions"
+
+
 class MemoGenerator:
     """Generates enriched memos with Amazon order details."""
 

@@ -1425,7 +1425,9 @@ def test_main_batch_dry_run_smoke(
     monkeypatch.setattr(
         cli_module, "prompt_for_amazon_orders_data", lambda: [_batch_order()]
     )
-    monkeypatch.setattr(cli_module, "prompt_for_amazon_transactions_data", lambda: None)
+    monkeypatch.setattr(
+        cli_module, "prompt_for_amazon_transactions_data", lambda *_args: None
+    )
     monkeypatch.setattr(
         cli_module,
         "fetch_amazon_transactions",
@@ -1604,14 +1606,15 @@ def test_collect_parsed_orders_uses_transactions_page_charges(
         cli_module, "get_multiline_input_with_custom_submit", lambda _p: next(pastes)
     )
 
-    orders = cli_module._collect_parsed_orders()
+    orders = cli_module._collect_parsed_orders("amazon.com")
 
     assert orders is not None
     assert sorted(o.total for o in orders if o.total is not None) == [4.19, 10.80]
     assert all(o.items for o in orders)
-    assert "2 card transactions (0 refunds; 1 gift-card payments ignored)" in (
-        capsys.readouterr().out
-    )
+    out = capsys.readouterr().out
+    assert "2 card transactions (0 refunds; 1 gift-card payments ignored)" in out
+    assert "Open https://www.amazon.com/gp/css/order-history," in out
+    assert "Open https://www.amazon.com/cpe/yourpayments/transactions," in out
 
 
 def test_collect_parsed_orders_without_transactions_page_keeps_totals(

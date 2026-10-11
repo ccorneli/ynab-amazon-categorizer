@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `AMAZON_DOMAIN` documented in `.env.example` and the README
 - Re-running `--setup` offers the existing `.env` values as defaults and updates the file in place, preserving comments and other keys
 - Optional second paste of the Amazon transactions page (Your Payments → Transactions). YNAB transactions then match the exact card charge instead of the order total, so split shipments, orders partly paid by gift card, and refunds match; gift-card payments are ignored
+- The orders and transactions paste prompts show the Amazon page to copy, using `AMAZON_DOMAIN`
 
 ### Fixed
 
