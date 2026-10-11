@@ -46,8 +46,7 @@ git diff --stat upstream/main origin/main
   split defaults to yes for multi-item orders, and running without a `.env`
   offers setup.
 - Ruff here extends `../githooks/ruff.toml` (upstream's shared config), which
-  was not available when these changes were written. Run the full upstream
-  hooks (ruff, typos, gitleaks, vibedrift) before submitting.
+  is not public. Run upstream's checks by hand before submitting (see below).
 - Test fixtures must stay anonymised: no real names, addresses, card digits or
   order numbers.
 
@@ -72,3 +71,101 @@ git diff --stat upstream/main origin/main
    anonymised sample pages so the parsers can be checked against that layout.
 4. Before each PR, check whether upstream has moved (`git fetch upstream`) and
    rebase onto it.
+5. Run the checks in [Running upstream's checks by hand](#running-upstreams-checks-by-hand)
+   on each PR branch.
+
+## Running upstream's checks by hand
+
+Upstream's pre-commit hook comes from its `githooks` repo, which isn't public
+(both `dizzlkheinz/githooks` and `ccorneli/githooks` return 404). Each check
+can still be run on its own from the repository root. `ty`, `tach` and
+`pytest` need nothing extra (see `AGENTS.md`).
+
+### ruff
+
+`pyproject.toml` extends `../githooks/ruff.toml`, so ruff won't start without
+it. As a stand-in, build that file from upstream's last full ruff settings
+(commit `7b88a9b^`, just before upstream moved them out). It's close to the
+shared config, but not guaranteed identical.
+
+```bash
+mkdir ../githooks   # stop if it already exists
+git show '7b88a9b^:pyproject.toml' \
+  | sed -n '/^\[tool\.ruff\]/,/^\[tool\.typos/p' | sed '$d' \
+  | sed '/^\[tool\.ruff\]$/d; s/^\[tool\.ruff\.lint/[lint/' \
+  | grep -v 'target-version\|extend-exclude\|"DTZ007"' > ../githooks/ruff.toml
+uv run --extra dev ruff format --check src tests
+uv run --extra dev ruff check src tests
+rm -r ../githooks
+```
+
+### typos
+
+```bash
+uvx typos
+```
+
+### gitleaks
+
+Install the binary from <https://github.com/gitleaks/gitleaks/releases>
+(`brew install gitleaks` on macOS), then:
+
+```bash
+gitleaks git --redact .   # full history
+gitleaks dir --redact .   # working tree
+```
+
+`.env` is in `.gitignore`. Check that it has never been committed with
+`git log --all -- .env`, which should print nothing.
+
+### vibedrift
+
+Needs Node.js. The hook fails below a score of 90.
+
+```bash
+npx --yes @vibedrift/cli scan . --format terminal --local-only --fail-on-score 90
+```
+
+### Telling new findings from old ones
+
+Run the same commands on upstream's base in a separate worktree. For ruff,
+create the stand-in file next to the worktree, here `/tmp/githooks/ruff.toml`.
+
+```bash
+git worktree add /tmp/upstream-base upstream/main
+cd /tmp/upstream-base   # run the checks here
+git worktree remove --force /tmp/upstream-base
+```
+
+### Last run (2026-10-11, fork `main` at `3af7430`)
+
+| Check | Fork | Upstream `7b88a9b` |
+|---|---|---|
+| ruff format | clean | clean |
+| ruff check | 67 findings | clean |
+| typos | 4 (2 already upstream, 2 false positives) | 2 |
+| gitleaks | 2 fake test keys (1 already upstream) | 1 |
+| vibedrift | 95.7/100, passes | 95.5/100 |
+
+The ruff findings, all in code added by the fork:
+
+- 50 missing docstrings (D100–D103), mostly test functions.
+- 14 tests that call private `cli._…` helpers (SLF001).
+- One each: a Unicode minus sign "−" in `amazon_transactions.py` (RUF001),
+  intentional because Amazon pages use that character; an unused `noqa` in
+  `setup_wizard.py` (RUF100); a docstring that isn't in the imperative (D401);
+  and an import that belongs under `TYPE_CHECKING` (TC001).
+- Two combined `assert a and b` checks in `test_amazon_transactions.py` (PT018).
+
+Likely false positives. Leave these flagged and explain them in the PR rather
+than suppressing them (no `noqa`, allowlist entries or changed fixtures), so the
+maintainer can decide:
+
+- typos: "unparseable" (already flagged in upstream's own code) and "HSA" in
+  the FSA/HSA invoice fixtures. Upstream's old config allowed "unparseable"
+  via `[tool.typos.default] extend-words`. This file quotes both words, so
+  typos flags it too.
+- ruff RUF001: the "−" minus sign above.
+- gitleaks: `API_KEY = "secret…"` in `tests/test_setup_wizard.py` and the
+  key in `tests/test_cli_functions.py` (already upstream) are fake. vibedrift's
+  "hardcoded API key" warning is the same test key.
