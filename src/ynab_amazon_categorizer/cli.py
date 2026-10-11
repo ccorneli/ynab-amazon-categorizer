@@ -704,31 +704,40 @@ def handle_split(
 
 
 _TAX_RATE_TOLERANCE = 0.0005
-_tax_rate_offer = {"declined": False}
+_tax_rate_state: dict[str, list[float]] = {"seen": [], "declined": []}
+
+
+def _near_any(rate: float, rates: list[float]) -> bool:
+    return any(abs(rate - other) < _TAX_RATE_TOLERANCE for other in rates)
 
 
 def _offer_tax_rate_update(order_rate: float | None) -> None:
-    """Offer to save an order's actual tax rate as the default in .env.
+    """Offer to save a repeated order tax rate as the default in .env.
 
-    Asked at most until declined once per run; a tax-free order is ignored.
+    Asks only once a second order this run has about the same rate, since one
+    order that mixes taxed and tax-exempt items gives a misleading rate. A
+    declined rate is not offered again this run; tax-free orders are ignored.
     """
     current = default_tax_rate()
     if (
         not order_rate
-        or _tax_rate_offer["declined"]
         or abs(order_rate - current) < _TAX_RATE_TOLERANCE
+        or _near_any(order_rate, _tax_rate_state["declined"])
     ):
+        return
+    if not _near_any(order_rate, _tax_rate_state["seen"]):
+        _tax_rate_state["seen"].append(order_rate)
         return
     value = f"{order_rate:.5f}".rstrip("0")
     print(
-        f"This order was taxed at {order_rate * 100:.4g}%; your setting is"
-        f" {current * 100:.4g}% (used when you type base prices).",
+        f"Two orders this run were taxed at about {order_rate * 100:.4g}%; your"
+        f" setting is {current * 100:.4g}% (used when you type base prices).",
     )
     answer = _prompt_line(
         f"Save YNAB_DEFAULT_TAX_RATE={value} to .env? (y/n, default n): ",
     ).lower()
     if answer != "y":
-        _tax_rate_offer["declined"] = True
+        _tax_rate_state["declined"].append(order_rate)
         return
     try:
         save_env_value(Path.cwd() / ENV_FILENAME, "YNAB_DEFAULT_TAX_RATE", value)

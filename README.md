@@ -242,9 +242,10 @@ YNAB_DEFAULT_TAX_RATE=0.06625
 YNAB_GROCERY_TAX_RATE=0
 ```
 
-When you paste an order summary page whose tax rate differs from
-`YNAB_DEFAULT_TAX_RATE`, the tool offers to save that rate to `.env` (once per
-run). Answer n for orders that mix taxed and tax-exempt items.
+When two order summary pages in one run show about the same tax rate and it
+differs from `YNAB_DEFAULT_TAX_RATE`, the tool offers to save that rate to
+`.env`. A single order that mixes taxed and tax-exempt items won't trigger it,
+and answering n stops it offering that rate again during the run.
 
 ## Generated Memos
 
