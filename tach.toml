@@ -43,6 +43,10 @@ path = "ynab_amazon_categorizer.amazon_transactions"
 depends_on = ["ynab_amazon_categorizer.models"]
 
 [[modules]]
+path = "ynab_amazon_categorizer.run_summary"
+depends_on = ["ynab_amazon_categorizer.models"]
+
+[[modules]]
 path = "ynab_amazon_categorizer.payloads"
 depends_on = [
     "ynab_amazon_categorizer.memo_generator",
@@ -93,6 +97,7 @@ depends_on = [
     "ynab_amazon_categorizer.memo_generator",
     "ynab_amazon_categorizer.models",
     "ynab_amazon_categorizer.payloads",
+    "ynab_amazon_categorizer.run_summary",
     "ynab_amazon_categorizer.setup_wizard",
     "ynab_amazon_categorizer.tax",
     "ynab_amazon_categorizer.transaction_matcher",

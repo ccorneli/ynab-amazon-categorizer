@@ -24,6 +24,7 @@ class OrderSummary:
     order_id: str | None
     items: list[InvoiceItem]
     subtotal: float | None
+    pre_tax_total: float | None
     tax: float | None
     grand_total: float | None
 
@@ -85,6 +86,7 @@ def parse_order_summary(text: str) -> OrderSummary | None:
         order_id=order_id.group(1) if order_id else None,
         items=items,
         subtotal=_labeled_amount(text, "Item(s) Subtotal"),
+        pre_tax_total=_labeled_amount(text, "Total before tax"),
         tax=_labeled_amount(text, "Estimated tax to be collected"),
         grand_total=_labeled_amount(text, "Grand Total"),
     )
@@ -107,3 +109,11 @@ def allocate_amount(total: float, prices: list[float]) -> list[float]:
         shares = [round(total_cents * price / price_sum) for price in prices[:-1]]
     shares.append(total_cents - sum(shares))
     return [share / 100 for share in shares]
+
+
+def effective_tax_rate(summary: OrderSummary) -> float | None:
+    """The order's tax as a fraction of its pre-tax total, or None if unknown."""
+    base = summary.pre_tax_total or summary.subtotal
+    if summary.tax is None or not base:
+        return None
+    return round(summary.tax / base, 5)

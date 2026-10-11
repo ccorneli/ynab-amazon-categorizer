@@ -1,7 +1,7 @@
 """Tests for extracted CLI helper functions."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -35,11 +35,13 @@ from ynab_amazon_categorizer.memo_generator import (
     build_batch_memo,
     generate_split_summary_memo,
 )
+from ynab_amazon_categorizer.models import YNABTransaction
 from ynab_amazon_categorizer.payloads import (
     build_memo_only_payload,
     build_single_payload,
     build_split_payload,
 )
+from ynab_amazon_categorizer.run_summary import RunSummary
 from ynab_amazon_categorizer.transactions import (
     fetch_amazon_transactions,
     is_amazon_payee,
@@ -1423,7 +1425,7 @@ def test_main_batch_dry_run_smoke(
     monkeypatch.setattr(cli_module, "YNABClient", lambda *_args: client)
     monkeypatch.setattr(cli_module, "_prompt_line", lambda _message: "y")
     monkeypatch.setattr(
-        cli_module, "prompt_for_amazon_orders_data", lambda: [_batch_order()]
+        cli_module, "prompt_for_amazon_orders_data", lambda *_a: [_batch_order()]
     )
     monkeypatch.setattr(
         cli_module, "prompt_for_amazon_transactions_data", lambda *_args: None
@@ -1463,6 +1465,9 @@ def test_main_handles_terminal_interruption(
         raise interrupt
 
     monkeypatch.setattr(cli_module, "_prompt_line", interrupt_prompt)
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", interrupt_prompt
+    )
 
     exit_code = cli_module.main([])
 
@@ -1613,18 +1618,28 @@ def test_collect_parsed_orders_uses_transactions_page_charges(
     assert all(o.items for o in orders)
     out = capsys.readouterr().out
     assert "2 card transactions (0 refunds; 1 gift-card payments ignored)" in out
-    assert "Open https://www.amazon.com/gp/css/order-history," in out
-    assert "Open https://www.amazon.com/cpe/yourpayments/transactions," in out
+    assert (
+        "Paste Amazon orders page content from here:\n"
+        "  https://www.amazon.com/gp/css/order-history\n"
+    ) in out
+    assert (
+        "Paste Amazon transactions page content from here:\n"
+        "  https://www.amazon.com/cpe/yourpayments/transactions\n"
+    ) in out
 
 
 def test_collect_parsed_orders_without_transactions_page_keeps_totals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Declining the transactions paste keeps matching on order totals."""
-    answers = iter(["y", "n"])
-    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(answers))
+    """An empty transactions paste keeps matching on order totals."""
+    pastes = iter([_ORDERS_PAGE, ""])
+
+    def _no_line_prompt(_prompt: str) -> str:
+        raise AssertionError("no y/n prompt before the pastes")
+
+    monkeypatch.setattr(cli_module, "_prompt_line", _no_line_prompt)
     monkeypatch.setattr(
-        cli_module, "get_multiline_input_with_custom_submit", lambda _p: _ORDERS_PAGE
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: next(pastes)
     )
 
     orders = cli_module._collect_parsed_orders()
@@ -1665,11 +1680,12 @@ def test_handle_split_uses_invoice_amounts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Pasting the order summary fills each split with the item's share."""
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.05")
     monkeypatch.setattr(
         cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
     )
-    # paste? (default y), then per split: amount (blank = suggestion), memo y
-    responses = iter(["", "", "", "", ""])
+    # per split: amount (blank = suggestion), memo y
+    responses = iter(["", "", "", ""])
     monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
     categories = iter([("cat1", "Cat One"), ("cat2", "Cat Two")])
     monkeypatch.setattr(
@@ -1717,6 +1733,7 @@ def test_invoice_partial_charge_warns(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A split-shipment charge gets each item's share of the whole order."""
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.05")
     monkeypatch.setattr(
         cli_module, "get_multiline_input_with_custom_submit", lambda _p: _INVOICE_PAGE
     )
@@ -1731,10 +1748,184 @@ def test_invoice_partial_charge_warns(
     assert "only part of the order" in capsys.readouterr().out
 
 
-def test_invoice_prompt_declined(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "n")
+def test_invoice_prompt_skipped_with_empty_paste(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The paste box opens straight away; an empty paste skips it."""
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: ""
+    )
+
+    def _no_line_prompt(_prompt: str) -> str:
+        raise AssertionError("no single-line prompt before the paste")
+
+    monkeypatch.setattr(cli_module, "_prompt_line", _no_line_prompt)
 
     assert (
         cli_module.prompt_for_invoice_split(_split_order(), MemoGenerator(), -21000)
         is None
     )
+
+
+def test_split_defaults_to_yes_for_multiple_items(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+
+    assert cli_module._should_ask_split(_split_order()) == "y"
+    assert "2 items in this order, so split defaults to yes." in capsys.readouterr().out
+
+
+def test_split_multiple_items_can_still_decline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "N")
+
+    assert cli_module._should_ask_split(_split_order()) == "n"
+
+
+def test_split_defaults_to_no_for_single_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("YNAB_SKIP_SPLIT_PROMPT_SINGLE_ITEM", raising=False)
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+    order = _split_order()
+    order.items = ["Widget A"]
+
+    assert cli_module._should_ask_split(order) != "y"
+
+
+def test_handle_categorize_records_update_in_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction = {
+        "id": "t1",
+        "account_id": "a1",
+        "date": "2025-01-15",
+        "amount": -15000,
+    }
+    monkeypatch.setattr(
+        cli_module, "prompt_for_category_selection", lambda *a, **k: ("cat1", "Cat One")
+    )
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda *a, **k: ""
+    )
+    responses = iter(["n", "n"])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
+    summary = RunSummary(total=1, dry_run=True)
+
+    result = _handle_categorize(
+        transaction,
+        None,
+        "",
+        MemoGenerator(),
+        Mock(),
+        Mock(),
+        {},
+        {"cat1": "Cat One"},
+        dry_run=True,
+        summary=summary,
+    )
+
+    assert result == "done"
+    assert summary.lines()[1] == "2025-01-15     -$15.00  would update: Cat One"
+
+
+def test_process_interactively_prints_summary_after_quit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transactions = cast(
+        "list[YNABTransaction]",
+        [
+            {
+                "id": f"t{i}",
+                "date": "2024-01-01",
+                "payee_name": "Amazon",
+                "amount": -1000,
+            }
+            for i in range(3)
+        ],
+    )
+    responses = iter(["s", "q"])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
+
+    cli_module._process_interactively(
+        transactions,
+        None,
+        MemoGenerator(),
+        Mock(),
+        Mock(),
+        {},
+        {},
+        True,
+    )
+
+    out = capsys.readouterr().out
+    assert "Finished processing transactions." not in out
+    assert "--- Summary (dry run: nothing sent to YNAB) ---" in out
+    assert "2024-01-01      -$1.00  skipped: by you" in out
+    assert "0 would update, 1 skipped, 2 not reached" in out
+
+
+def _fresh_tax_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("YNAB_DEFAULT_TAX_RATE", "0.09")
+    monkeypatch.setattr(cli_module, "_tax_rate_state", {"seen": [], "declined": []})
+
+
+def test_offer_tax_rate_update_saves_after_two_orders_agree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("# keep me\nYNAB_API_KEY=k\n", encoding="utf-8")
+    _fresh_tax_state(monkeypatch)
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        cli_module, "_prompt_line", lambda prompt: prompts.append(prompt) or "y"
+    )
+
+    cli_module._offer_tax_rate_update(0.06626)
+    assert prompts == []
+    cli_module._offer_tax_rate_update(0.06625)
+
+    assert len(prompts) == 1
+    assert "taxed at about 6.625%; your setting is 9%" in capsys.readouterr().out
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == (
+        "# keep me\nYNAB_API_KEY=k\nYNAB_DEFAULT_TAX_RATE=0.06625\n"
+    )
+    assert cli_module.default_tax_rate() == 0.06625
+
+
+def test_offer_tax_rate_update_decline_silences_only_that_rate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _fresh_tax_state(monkeypatch)
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        cli_module, "_prompt_line", lambda prompt: prompts.append(prompt) or "n"
+    )
+
+    for rate in (0.04, 0.0663, 0.0662, 0.0663, 0.04):
+        cli_module._offer_tax_rate_update(rate)
+
+    assert len(prompts) == 2
+    assert "0.0662" in prompts[0]
+    assert "0.04" in prompts[1]
+    assert not (tmp_path / ".env").exists()
+
+
+@pytest.mark.parametrize("order_rate", [None, 0.0, 0.0902])
+def test_offer_tax_rate_update_silent_when_not_needed(
+    monkeypatch: pytest.MonkeyPatch,
+    order_rate: float | None,
+) -> None:
+    _fresh_tax_state(monkeypatch)
+    monkeypatch.setattr(cli_module, "_prompt_line", Mock(side_effect=AssertionError))
+
+    cli_module._offer_tax_rate_update(order_rate)
+    cli_module._offer_tax_rate_update(order_rate)

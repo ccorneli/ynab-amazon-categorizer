@@ -141,6 +141,15 @@ update without sending any changes to YNAB:
 ynab-amazon-categorizer --dry-run
 ```
 
+Every interactive run ends with a summary, which also prints if you quit early:
+
+```
+--- Summary (dry run: nothing sent to YNAB) ---
+2026-10-04     -$32.32  would update: split 2 ways (Pets $25.30, Health $7.02)
+2026-10-02     -$16.21  skipped: no matching order
+1 would update, 1 skipped, 3 not reached
+```
+
 The tool still shows the JSON preview for each transaction but skips the API
 call, so it is safe for trying the tool out or verifying matches.
 
@@ -218,9 +227,25 @@ once when prompted; `--batch` only removes the per-transaction prompting.
      - Fancy Feast Grilled Wet Cat Food, Salmon & Shrimp Feast in Gravy - 85 g Can (24 Pack)
 
 Action? (c = categorize/split, s = skip, q = quit, default c): 
-There is more than one item in this transaction.
-Split this transaction? (y/n, default n): y
+2 items in this order, so split defaults to yes.
+Split this transaction? (Y/n, default y):
 ```
+
+### Tax rates
+
+When you type a base price instead of pasting the order summary page, tax is
+estimated at 9%, or 4.5% for categories whose name contains "grocery". Override
+these in `.env`:
+
+```env
+YNAB_DEFAULT_TAX_RATE=0.06625
+YNAB_GROCERY_TAX_RATE=0
+```
+
+When two order summary pages in one run show about the same tax rate and it
+differs from `YNAB_DEFAULT_TAX_RATE`, the tool offers to save that rate to
+`.env`. A single order that mixes taxed and tax-exempt items won't trigger it,
+and answering n stops it offering that rate again during the run.
 
 ## Generated Memos
 

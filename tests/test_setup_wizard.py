@@ -17,6 +17,7 @@ from ynab_amazon_categorizer.setup_wizard import (
     read_env_file,
     render_env,
     run_setup,
+    save_env_value,
     write_env_file,
 )
 
@@ -413,3 +414,22 @@ def test_run_setup_keeps_budget_when_env_has_no_api_key(tmp_path: Path) -> None:
     values, _, _ = _run(tmp_path, ["y", "", "", "", ""])
 
     assert values == SetupValues(API_KEY, OTHER_BUDGET, ACCOUNT, "amazon.ca")
+
+
+def test_save_env_value_updates_in_place_and_keeps_the_rest(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("# c\nYNAB_DEFAULT_TAX_RATE=0.09\nOTHER=1\n", encoding="utf-8")
+
+    save_env_value(env, "YNAB_DEFAULT_TAX_RATE", "0.06625")
+
+    assert env.read_text(encoding="utf-8") == (
+        "# c\nYNAB_DEFAULT_TAX_RATE=0.06625\nOTHER=1\n"
+    )
+
+
+def test_save_env_value_creates_missing_file(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+
+    save_env_value(env, "YNAB_DEFAULT_TAX_RATE", "0.06625")
+
+    assert env.read_text(encoding="utf-8") == "YNAB_DEFAULT_TAX_RATE=0.06625\n"

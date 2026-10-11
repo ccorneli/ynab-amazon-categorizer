@@ -52,6 +52,7 @@ Current modules:
 - `src/ynab_amazon_categorizer/models.py` - typed domain and YNAB payload models.
 - `src/ynab_amazon_categorizer/payloads.py` - minimal YNAB update construction.
 - `src/ynab_amazon_categorizer/transactions.py` - transaction validation and Amazon-payee filtering.
+- `src/ynab_amazon_categorizer/run_summary.py` - end-of-run summary of each transaction's outcome.
 - `src/ynab_amazon_categorizer/batch.py` - non-interactive matching and memo enrichment policy.
 
 Design principles:

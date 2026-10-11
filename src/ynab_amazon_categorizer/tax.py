@@ -27,9 +27,14 @@ def _env_tax_rate(var_name: str, fallback: float) -> float:
         return fallback
 
 
+def default_tax_rate() -> float:
+    """Return the configured tax rate for non-grocery categories."""
+    return _env_tax_rate("YNAB_DEFAULT_TAX_RATE", DEFAULT_TAX_RATE)
+
+
 def tax_rate_for_category(category_name: str | None) -> float:
     """Return the configured split-entry tax rate for a category."""
-    default_rate = _env_tax_rate("YNAB_DEFAULT_TAX_RATE", DEFAULT_TAX_RATE)
+    default_rate = default_tax_rate()
     grocery_rate = _env_tax_rate("YNAB_GROCERY_TAX_RATE", GROCERY_TAX_RATE)
     if category_name and any(
         keyword in category_name.lower() for keyword in GROCERY_CATEGORY_KEYWORDS

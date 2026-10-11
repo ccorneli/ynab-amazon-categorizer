@@ -21,7 +21,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 from . import __version__
-from .amazon_invoice import allocate_amount, parse_order_summary
+from .amazon_invoice import allocate_amount, effective_tax_rate, parse_order_summary
 from .amazon_parser import AmazonParser, Order
 from .amazon_transactions import (
     AmazonCharge,
@@ -49,7 +49,9 @@ from .payloads import (
     build_single_payload,
     build_split_payload,
 )
-from .setup_wizard import ENV_FILENAME, run_setup
+from .run_summary import RunSummary, Status, describe_update
+from .setup_wizard import ENV_FILENAME, run_setup, save_env_value
+from .tax import default_tax_rate
 from .tax import tax_rate_for_category as _tax_rate_for_category
 from .transaction_matcher import TransactionMatcher
 from .transactions import fetch_amazon_transactions
@@ -70,13 +72,24 @@ def _env_flag(var_name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "y")
 
 
-def prompt_for_amazon_orders_data() -> list[Order] | None:
+def _print_paste_source(what: str, url: str, skip_hint: str) -> None:
+    print(f"\nPaste {what} from here:")
+    print(f"  {url}")
+    print(skip_hint)
+
+
+def prompt_for_amazon_orders_data(page_url: str | None = None) -> list[Order] | None:
     """Prompt user to paste Amazon orders page data."""
     print("\n--- Amazon Orders Data Entry ---")
     print("You can copy and paste the content from your Amazon orders page.")
     print("This will help automatically extract order details and item information.")
 
-    print("\nPaste Amazon orders page content:")
+    if page_url:
+        _print_paste_source(
+            "Amazon orders page content", page_url, "Submit it empty to skip."
+        )
+    else:
+        print("\nPaste Amazon orders page content:")
 
     orders_text = get_multiline_input_with_custom_submit("Paste here: ")
 
@@ -690,6 +703,51 @@ def handle_split(
     return None
 
 
+_TAX_RATE_TOLERANCE = 0.0005
+_tax_rate_state: dict[str, list[float]] = {"seen": [], "declined": []}
+
+
+def _near_any(rate: float, rates: list[float]) -> bool:
+    return any(abs(rate - other) < _TAX_RATE_TOLERANCE for other in rates)
+
+
+def _offer_tax_rate_update(order_rate: float | None) -> None:
+    """Offer to save a repeated order tax rate as the default in .env.
+
+    Asks only once a second order this run has about the same rate, since one
+    order that mixes taxed and tax-exempt items gives a misleading rate. A
+    declined rate is not offered again this run; tax-free orders are ignored.
+    """
+    current = default_tax_rate()
+    if (
+        not order_rate
+        or abs(order_rate - current) < _TAX_RATE_TOLERANCE
+        or _near_any(order_rate, _tax_rate_state["declined"])
+    ):
+        return
+    if not _near_any(order_rate, _tax_rate_state["seen"]):
+        _tax_rate_state["seen"].append(order_rate)
+        return
+    value = f"{order_rate:.5f}".rstrip("0")
+    print(
+        f"Two orders this run were taxed at about {order_rate * 100:.4g}%; your"
+        f" setting is {current * 100:.4g}% (used when you type base prices).",
+    )
+    answer = _prompt_line(
+        f"Save YNAB_DEFAULT_TAX_RATE={value} to .env? (y/n, default n): ",
+    ).lower()
+    if answer != "y":
+        _tax_rate_state["declined"].append(order_rate)
+        return
+    try:
+        save_env_value(Path.cwd() / ENV_FILENAME, "YNAB_DEFAULT_TAX_RATE", value)
+    except OSError as exc:
+        print(f"Could not update .env: {exc}")
+        return
+    os.environ["YNAB_DEFAULT_TAX_RATE"] = value
+    print(f"Saved. Base prices now use {order_rate * 100:.4g}% tax.")
+
+
 def prompt_for_invoice_split(
     matching_order: Order | None,
     memo_generator: MemoGenerator,
@@ -703,14 +761,11 @@ def prompt_for_invoice_split(
     if matching_order is None or not matching_order.order_id:
         return None
     order_id = matching_order.order_id
-    print("\nItem prices are on the order summary page:")
-    print(f"  {memo_generator.generate_amazon_invoice_link(order_id)}")
-    answer = _prompt_line(
-        "Paste it to fill in split amounts? (y/n, default y): ",
-    ).lower()
-    if answer and answer != "y":
-        return None
-
+    _print_paste_source(
+        "the order summary page (item prices for the split amounts)",
+        memo_generator.generate_amazon_invoice_link(order_id),
+        "Submit it empty to enter amounts yourself.",
+    )
     text = get_multiline_input_with_custom_submit("Paste here: ")
     if text is None or not text.strip() or text.strip().lower() == "skip":
         return None
@@ -740,6 +795,7 @@ def prompt_for_invoice_split(
     print("Amount per item (price plus its share of tax, shipping and discounts):")
     for item, amount in zip(summary.items, amounts, strict=True):
         print(f"  ${amount:.2f}  {item.name}")
+    _offer_tax_rate_update(effective_tax_rate(summary))
     return replace(matching_order, items=[item.name for item in summary.items]), amounts
 
 
@@ -912,6 +968,7 @@ def _run_action_loop(
     category_id_map: dict[str, str],
     used_order_ids: set[str] | None,
     dry_run: bool,
+    summary: RunSummary | None = None,
 ) -> bool:
     """Prompt for categorize/skip/quit until resolved.
 
@@ -928,6 +985,7 @@ def _run_action_loop(
             return False
         if action == "s":
             print("Skipping.")
+            _record_outcome(summary, transaction, "skipped", "by you")
             return True
         if action != "c":
             print("Invalid action. Choose 'c', 's', or 'q'.")
@@ -942,6 +1000,7 @@ def _run_action_loop(
             category_name_map,
             category_id_map,
             dry_run,
+            summary=summary,
         )
         if result == "done":
             _mark_order_used(matching_order, used_order_ids, dry_run)
@@ -962,6 +1021,7 @@ def process_transaction(
     used_order_ids: set[str] | None = None,
     dry_run: bool = False,
     stats: dict[str, int] | None = None,
+    summary: RunSummary | None = None,
 ) -> bool:
     """Process a single transaction through the interactive flow.
 
@@ -992,6 +1052,7 @@ def process_transaction(
         amount_float,
         matching_order,
     ):
+        _record_outcome(summary, transaction, "skipped", "inflow not processed")
         return True
 
     _print_transaction_summary(transaction, index, total, amount_float, matching_order)
@@ -1000,6 +1061,7 @@ def process_transaction(
     if parsed_orders:
         if not matching_order:
             _report_unmatched(stats)
+            _record_outcome(summary, transaction, "skipped", "no matching order")
             return True
         display_matched_order(matching_order, memo_generator)
 
@@ -1014,14 +1076,34 @@ def process_transaction(
         category_id_map,
         used_order_ids,
         dry_run,
+        summary,
     )
+
+
+def _record_outcome(
+    summary: RunSummary | None,
+    transaction: Mapping[str, Any],
+    status: Status,
+    detail: str,
+) -> None:
+    if summary is not None:
+        summary.record(
+            transaction["id"],
+            transaction["date"],
+            transaction["amount"] / 1000.0,
+            status,
+            detail,
+        )
 
 
 def _should_ask_split(matching_order: Order | None) -> str:
     """Determine whether to split and prompt the user if appropriate."""
     if matching_order and matching_order.items and len(matching_order.items) > 1:
-        print("There is more than one item in this transaction.")
-        return _prompt_line("Split this transaction? (y/n, default n): ").lower()
+        print(
+            f"{len(matching_order.items)} items in this order, so split defaults to yes.",
+        )
+        answer = _prompt_line("Split this transaction? (Y/n, default y): ").lower()
+        return answer or "y"
     if _env_flag("YNAB_SKIP_SPLIT_PROMPT_SINGLE_ITEM"):
         return "n"
     return _prompt_line("Split this transaction? (y/n, default n): ").lower()
@@ -1055,7 +1137,7 @@ def _confirm_and_apply_update(
         ) as exc:
             logger.error("Failed to update transaction %s: %s", transaction_id, exc)
             print(f"Update failed: {exc}")
-            return "continue"
+            return "failed"
         else:
             return "done"
     else:
@@ -1073,6 +1155,7 @@ def _handle_categorize(
     category_name_map: dict[str, str],
     category_id_map: dict[str, str],
     dry_run: bool = False,
+    summary: RunSummary | None = None,
 ) -> str:
     """Handle the categorize action for a transaction.
 
@@ -1124,13 +1207,21 @@ def _handle_categorize(
             original_memo,
         )
 
-    return _confirm_and_apply_update(
+    result = _confirm_and_apply_update(
         transaction_id,
         updated_payload_dict,
         category_id_map,
         ynab_client,
         dry_run,
     )
+    if result in ("done", "failed"):
+        _record_outcome(
+            summary,
+            transaction,
+            "updated" if result == "done" else "failed",
+            describe_update(updated_payload_dict, category_id_map),
+        )
+    return "continue" if result == "failed" else result
 
 
 # --- Main Script Logic ---
@@ -1263,14 +1354,7 @@ def _collect_parsed_orders(amazon_domain: str = "amazon.ca") -> list[Order] | No
     print(
         "You can paste Amazon orders page content to automatically match transactions with order details.",
     )
-    print(f"Open {amazon_orders_page_url(amazon_domain)}, select all and copy.")
-    provide_orders = _prompt_line(
-        "Would you like to provide Amazon orders data? (y/n, default y): ",
-    ).lower()
-    if provide_orders and provide_orders != "y":
-        return None
-
-    parsed_orders = prompt_for_amazon_orders_data()
+    parsed_orders = prompt_for_amazon_orders_data(amazon_orders_page_url(amazon_domain))
     if not parsed_orders:
         print("No valid orders found in provided data.")
         return parsed_orders
@@ -1301,14 +1385,11 @@ def prompt_for_amazon_transactions_data(
         " shipments, gift cards). Pasting Your Payments > Transactions lets each"
         " YNAB charge match its exact Amazon charge.",
     )
-    print(f"Open {amazon_transactions_page_url(amazon_domain)}, select all and copy.")
-    provide = _prompt_line(
-        "Would you like to paste the Amazon transactions page? (y/n, default y): ",
-    ).lower()
-    if provide and provide != "y":
-        return None
-
-    print("\nPaste Amazon transactions page content:")
+    _print_paste_source(
+        "Amazon transactions page content",
+        amazon_transactions_page_url(amazon_domain),
+        "Submit it empty to skip and match by order totals.",
+    )
     text = get_multiline_input_with_custom_submit("Paste here: ")
     if text is None or not text.strip() or text.strip().lower() == "skip":
         print("Skipping Amazon transactions data; matching by order totals.")
@@ -1368,31 +1449,31 @@ def _process_interactively(
     """Walk the transactions through the interactive flow and print a summary."""
     used_order_ids: set[str] = set()
     stats: dict[str, int] = {}
-    for i, t in enumerate(transactions_to_process):
-        should_continue = process_transaction(
-            t,
-            i,
-            len(transactions_to_process),
-            parsed_orders,
-            memo_generator,
-            ynab_client,
-            category_completer,
-            category_name_map,
-            category_id_map,
-            used_order_ids,
-            dry_run,
-            stats,
-        )
-        if not should_continue:
-            return
-
-    print("\nFinished processing transactions.")
-    auto_skipped = stats.get("auto_skipped_no_match", 0)
-    if auto_skipped:
-        print(
-            f"  ({auto_skipped} auto-skipped: no matching order data for that "
-            "transaction)",
-        )
+    summary = RunSummary(total=len(transactions_to_process), dry_run=dry_run)
+    try:
+        for i, t in enumerate(transactions_to_process):
+            should_continue = process_transaction(
+                t,
+                i,
+                len(transactions_to_process),
+                parsed_orders,
+                memo_generator,
+                ynab_client,
+                category_completer,
+                category_name_map,
+                category_id_map,
+                used_order_ids,
+                dry_run,
+                stats,
+                summary,
+            )
+            if not should_continue:
+                break
+        else:
+            print("\nFinished processing transactions.")
+    finally:
+        print()
+        print("\n".join(summary.lines()))
 
 
 def _run(argv: list[str] | None = None) -> int:
