@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Re-running `--setup` offers the existing `.env` values as defaults and updates the file in place, preserving comments and other keys
 - Optional second paste of the Amazon transactions page (Your Payments → Transactions). YNAB transactions then match the exact card charge instead of the order total, so split shipments, orders partly paid by gift card, and refunds match; gift-card payments are ignored
 - The orders and transactions paste prompts show the Amazon page to copy, using `AMAZON_DOMAIN`
+- Splitting a matched order offers to paste its order summary (invoice) page; each split's amount then defaults to the item's price plus its share of tax, shipping and discounts, summing exactly to the charge
 
 ### Fixed
 

@@ -189,6 +189,10 @@ once when prompted; `--batch` only removes the per-transaction prompting.
 3. **Review Matched Transactions**:
    - The script shows order details, items, and links before asking to categorize
    - For multiple items, it suggests splitting the transaction
+   - When you split, it prints the order summary (invoice) page link. Cmd/Ctrl+click
+     it, select all, copy and paste it back: each split's amount defaults to that
+     item's price plus its share of tax, shipping and gift-card discounts, adding
+     up exactly to the charge
 
 4. **Categorize Transactions**:
    - Use tab completion to select categories
