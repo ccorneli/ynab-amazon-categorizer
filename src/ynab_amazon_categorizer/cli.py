@@ -49,6 +49,7 @@ from .payloads import (
     build_single_payload,
     build_split_payload,
 )
+from .run_summary import RunSummary, Status, describe_update
 from .setup_wizard import ENV_FILENAME, run_setup
 from .tax import tax_rate_for_category as _tax_rate_for_category
 from .transaction_matcher import TransactionMatcher
@@ -920,6 +921,7 @@ def _run_action_loop(
     category_id_map: dict[str, str],
     used_order_ids: set[str] | None,
     dry_run: bool,
+    summary: RunSummary | None = None,
 ) -> bool:
     """Prompt for categorize/skip/quit until resolved.
 
@@ -936,6 +938,7 @@ def _run_action_loop(
             return False
         if action == "s":
             print("Skipping.")
+            _record_outcome(summary, transaction, "skipped", "by you")
             return True
         if action != "c":
             print("Invalid action. Choose 'c', 's', or 'q'.")
@@ -950,6 +953,7 @@ def _run_action_loop(
             category_name_map,
             category_id_map,
             dry_run,
+            summary=summary,
         )
         if result == "done":
             _mark_order_used(matching_order, used_order_ids, dry_run)
@@ -970,6 +974,7 @@ def process_transaction(
     used_order_ids: set[str] | None = None,
     dry_run: bool = False,
     stats: dict[str, int] | None = None,
+    summary: RunSummary | None = None,
 ) -> bool:
     """Process a single transaction through the interactive flow.
 
@@ -1000,6 +1005,7 @@ def process_transaction(
         amount_float,
         matching_order,
     ):
+        _record_outcome(summary, transaction, "skipped", "inflow not processed")
         return True
 
     _print_transaction_summary(transaction, index, total, amount_float, matching_order)
@@ -1008,6 +1014,7 @@ def process_transaction(
     if parsed_orders:
         if not matching_order:
             _report_unmatched(stats)
+            _record_outcome(summary, transaction, "skipped", "no matching order")
             return True
         display_matched_order(matching_order, memo_generator)
 
@@ -1022,7 +1029,24 @@ def process_transaction(
         category_id_map,
         used_order_ids,
         dry_run,
+        summary,
     )
+
+
+def _record_outcome(
+    summary: RunSummary | None,
+    transaction: Mapping[str, Any],
+    status: Status,
+    detail: str,
+) -> None:
+    if summary is not None:
+        summary.record(
+            transaction["id"],
+            transaction["date"],
+            transaction["amount"] / 1000.0,
+            status,
+            detail,
+        )
 
 
 def _should_ask_split(matching_order: Order | None) -> str:
@@ -1066,7 +1090,7 @@ def _confirm_and_apply_update(
         ) as exc:
             logger.error("Failed to update transaction %s: %s", transaction_id, exc)
             print(f"Update failed: {exc}")
-            return "continue"
+            return "failed"
         else:
             return "done"
     else:
@@ -1084,6 +1108,7 @@ def _handle_categorize(
     category_name_map: dict[str, str],
     category_id_map: dict[str, str],
     dry_run: bool = False,
+    summary: RunSummary | None = None,
 ) -> str:
     """Handle the categorize action for a transaction.
 
@@ -1135,13 +1160,21 @@ def _handle_categorize(
             original_memo,
         )
 
-    return _confirm_and_apply_update(
+    result = _confirm_and_apply_update(
         transaction_id,
         updated_payload_dict,
         category_id_map,
         ynab_client,
         dry_run,
     )
+    if result in ("done", "failed"):
+        _record_outcome(
+            summary,
+            transaction,
+            "updated" if result == "done" else "failed",
+            describe_update(updated_payload_dict, category_id_map),
+        )
+    return "continue" if result == "failed" else result
 
 
 # --- Main Script Logic ---
@@ -1369,31 +1402,31 @@ def _process_interactively(
     """Walk the transactions through the interactive flow and print a summary."""
     used_order_ids: set[str] = set()
     stats: dict[str, int] = {}
-    for i, t in enumerate(transactions_to_process):
-        should_continue = process_transaction(
-            t,
-            i,
-            len(transactions_to_process),
-            parsed_orders,
-            memo_generator,
-            ynab_client,
-            category_completer,
-            category_name_map,
-            category_id_map,
-            used_order_ids,
-            dry_run,
-            stats,
-        )
-        if not should_continue:
-            return
-
-    print("\nFinished processing transactions.")
-    auto_skipped = stats.get("auto_skipped_no_match", 0)
-    if auto_skipped:
-        print(
-            f"  ({auto_skipped} auto-skipped: no matching order data for that "
-            "transaction)",
-        )
+    summary = RunSummary(total=len(transactions_to_process), dry_run=dry_run)
+    try:
+        for i, t in enumerate(transactions_to_process):
+            should_continue = process_transaction(
+                t,
+                i,
+                len(transactions_to_process),
+                parsed_orders,
+                memo_generator,
+                ynab_client,
+                category_completer,
+                category_name_map,
+                category_id_map,
+                used_order_ids,
+                dry_run,
+                stats,
+                summary,
+            )
+            if not should_continue:
+                break
+        else:
+            print("\nFinished processing transactions.")
+    finally:
+        print()
+        print("\n".join(summary.lines()))
 
 
 def _run(argv: list[str] | None = None) -> int:

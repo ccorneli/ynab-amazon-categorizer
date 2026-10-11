@@ -1,7 +1,7 @@
 """Tests for extracted CLI helper functions."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -35,11 +35,13 @@ from ynab_amazon_categorizer.memo_generator import (
     build_batch_memo,
     generate_split_summary_memo,
 )
+from ynab_amazon_categorizer.models import YNABTransaction
 from ynab_amazon_categorizer.payloads import (
     build_memo_only_payload,
     build_single_payload,
     build_split_payload,
 )
+from ynab_amazon_categorizer.run_summary import RunSummary
 from ynab_amazon_categorizer.transactions import (
     fetch_amazon_transactions,
     is_amazon_payee,
@@ -1790,3 +1792,76 @@ def test_split_defaults_to_no_for_single_item(
     order.items = ["Widget A"]
 
     assert cli_module._should_ask_split(order) != "y"
+
+
+def test_handle_categorize_records_update_in_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transaction = {
+        "id": "t1",
+        "account_id": "a1",
+        "date": "2025-01-15",
+        "amount": -15000,
+    }
+    monkeypatch.setattr(
+        cli_module, "prompt_for_category_selection", lambda *a, **k: ("cat1", "Cat One")
+    )
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda *a, **k: ""
+    )
+    responses = iter(["n", "n"])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
+    summary = RunSummary(total=1, dry_run=True)
+
+    result = _handle_categorize(
+        transaction,
+        None,
+        "",
+        MemoGenerator(),
+        Mock(),
+        Mock(),
+        {},
+        {"cat1": "Cat One"},
+        dry_run=True,
+        summary=summary,
+    )
+
+    assert result == "done"
+    assert summary.lines()[1] == "2025-01-15     -$15.00  would update: Cat One"
+
+
+def test_process_interactively_prints_summary_after_quit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transactions = cast(
+        "list[YNABTransaction]",
+        [
+            {
+                "id": f"t{i}",
+                "date": "2024-01-01",
+                "payee_name": "Amazon",
+                "amount": -1000,
+            }
+            for i in range(3)
+        ],
+    )
+    responses = iter(["s", "q"])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(responses))
+
+    cli_module._process_interactively(
+        transactions,
+        None,
+        MemoGenerator(),
+        Mock(),
+        Mock(),
+        {},
+        {},
+        True,
+    )
+
+    out = capsys.readouterr().out
+    assert "Finished processing transactions." not in out
+    assert "--- Summary (dry run: nothing sent to YNAB) ---" in out
+    assert "2024-01-01      -$1.00  skipped: by you" in out
+    assert "0 would update, 1 skipped, 2 not reached" in out

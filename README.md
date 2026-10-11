@@ -141,6 +141,15 @@ update without sending any changes to YNAB:
 ynab-amazon-categorizer --dry-run
 ```
 
+Every interactive run ends with a summary, which also prints if you quit early:
+
+```
+--- Summary (dry run: nothing sent to YNAB) ---
+2026-10-04     -$32.32  would update: split 2 ways (Pets $25.30, Health $7.02)
+2026-10-02     -$16.21  skipped: no matching order
+1 would update, 1 skipped, 3 not reached
+```
+
 The tool still shows the JSON preview for each transaction but skips the API
 call, so it is safe for trying the tool out or verifying matches.
 
