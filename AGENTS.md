@@ -42,6 +42,7 @@ python -X utf8 src/ynab_amazon_categorizer/cli.py
 Current modules:
 - `src/ynab_amazon_categorizer/cli.py` - main CLI entry point and interactive flow.
 - `src/ynab_amazon_categorizer/amazon_parser.py` - Amazon order parsing logic.
+- `src/ynab_amazon_categorizer/amazon_transactions.py` - Amazon transactions-page parsing; turns card charges into matchable orders.
 - `src/ynab_amazon_categorizer/transaction_matcher.py` - amount/date matching logic.
 - `src/ynab_amazon_categorizer/memo_generator.py` - memo and order-link generation.
 - `src/ynab_amazon_categorizer/ynab_client.py` - YNAB API communication.
@@ -60,7 +61,8 @@ Design principles:
 
 Data flow:
 1. User copies Amazon orders page text.
-2. Parser extracts orders and item details.
+2. Parser extracts orders and item details; an optional transactions-page paste
+   replaces order totals with the exact card charges.
 3. Tool fetches uncategorized YNAB transactions.
 4. Matcher pairs orders with transactions using amount/date heuristics.
 5. CLI guides category updates and split transactions.

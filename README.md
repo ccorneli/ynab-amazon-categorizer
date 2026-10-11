@@ -164,8 +164,8 @@ ynab-amazon-categorizer --batch --dry-run
 ynab-amazon-categorizer --batch
 ```
 
-You still paste the Amazon orders page once when prompted; `--batch` only
-removes the per-transaction prompting.
+You still paste the Amazon orders page (and optionally the transactions page)
+once when prompted; `--batch` only removes the per-transaction prompting.
 
 ### Workflow
 1. **Provide Amazon Orders Data** (optional but recommended):
@@ -174,11 +174,23 @@ removes the per-transaction prompting.
    - Run the tool and paste Amazon order info when prompted 
    - The script will automatically match transactions with orders
 
-2. **Review Matched Transactions**:
+2. **Provide Amazon Transactions Data** (optional, for exact charges):
+   - An order's total isn't always what your card was charged: split shipments
+     are charged separately, and gift-card balance is taken off the card charge
+   - Open Your Payments → Transactions (for example
+     https://www.amazon.com/cpe/yourpayments/transactions, or "View
+     transactions" on the orders page), select all and copy
+   - Paste it at the second prompt. Each YNAB transaction is then matched to the
+     Amazon card charge with the same amount (refunds match inflows), and the
+     charge's order number supplies the items and link from the orders paste
+   - Gift-card payments are ignored since they never reach your bank. Skip this
+     prompt to match on order totals as before
+
+3. **Review Matched Transactions**:
    - The script shows order details, items, and links before asking to categorize
    - For multiple items, it suggests splitting the transaction
 
-3. **Categorize Transactions**:
+4. **Categorize Transactions**:
    - Use tab completion to select categories
    - Accept suggested memos or customize them
    - Confirm updates with enhanced previews

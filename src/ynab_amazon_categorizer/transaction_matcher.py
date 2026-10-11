@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from .amazon_parser import Order
+from .models import order_match_key
 
 
 def _parse_transaction_date(date_str: str) -> datetime | None:
@@ -80,19 +81,22 @@ def _is_better_candidate(
 
 def _is_amount_candidate(
     order: Order,
-    amount_abs: float,
+    transaction_amount: float,
     used_order_ids: set[str] | None,
 ) -> bool:
-    """Check if an order matches the transaction amount and has not been used."""
+    """Check if an order matches the transaction amount and has not been used.
+
+    Charges from the transactions page also have to match direction: a refund
+    only matches an inflow, and a charge only an outflow.
+    """
     if order.total is None:
         return False
-    if (
-        used_order_ids
-        and order.order_id is not None
-        and order.order_id in used_order_ids
-    ):
+    key = order_match_key(order)
+    if used_order_ids and key is not None and key in used_order_ids:
         return False
-    return abs(order.total - amount_abs) < AMOUNT_MATCH_TOLERANCE
+    if order.refund is not None and order.refund != (transaction_amount > 0):
+        return False
+    return abs(order.total - abs(transaction_amount)) < AMOUNT_MATCH_TOLERANCE
 
 
 def _is_within_date_window(
@@ -135,7 +139,6 @@ class TransactionMatcher:
         if not parsed_orders:
             return None
 
-        transaction_amount_abs = abs(transaction_amount)
         trans_date = _parse_transaction_date(transaction_date)
 
         best_match: Order | None = None
@@ -144,7 +147,7 @@ class TransactionMatcher:
         best_order_id: str = ""
 
         for order in parsed_orders:
-            if not _is_amount_candidate(order, transaction_amount_abs, used_order_ids):
+            if not _is_amount_candidate(order, transaction_amount, used_order_ids):
                 continue
 
             match_result = _calculate_proximity_score(
@@ -188,13 +191,12 @@ class TransactionMatcher:
         ambiguity (zero or multiple amount matches, or a far-off date) returns
         ``None`` so batch mode never auto-applies a guess.
         """
-        amount_abs = abs(transaction_amount)
         trans_date = _parse_transaction_date(transaction_date)
 
         candidates = [
             order
             for order in parsed_orders
-            if _is_amount_candidate(order, amount_abs, used_order_ids)
+            if _is_amount_candidate(order, transaction_amount, used_order_ids)
         ]
 
         if len(candidates) != 1:

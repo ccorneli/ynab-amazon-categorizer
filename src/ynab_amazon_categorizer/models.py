@@ -18,6 +18,15 @@ class Order:
     date_str: str | None = None
     items: list[str] = field(default_factory=list)
     currency: str | None = None
+    charge_id: str | None = None
+    """Set when this entry is one card charge from the transactions page."""
+    refund: bool | None = None
+    """For a charge, whether it was a refund; None when unknown (order totals)."""
+
+
+def order_match_key(order: Order) -> str | None:
+    """Key that marks an order (or one of its charges) as used by a match."""
+    return order.charge_id or order.order_id
 
 
 def format_currency_amount(amount: float | None, currency: str | None = None) -> str:

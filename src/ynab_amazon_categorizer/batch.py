@@ -8,7 +8,7 @@ import requests
 
 from .exceptions import YNABAPIError
 from .memo_generator import MemoGenerator, build_batch_memo
-from .models import Order, TransactionUpdate, format_currency_amount
+from .models import Order, TransactionUpdate, format_currency_amount, order_match_key
 from .payloads import build_memo_only_payload
 from .transaction_matcher import TransactionMatcher
 from .ynab_client import YNABClient
@@ -87,8 +87,9 @@ def _enrich_one(
     # A confident match belongs to this transaction even when enrichment is
     # unnecessary or impossible. Do not let a later same-amount transaction
     # reuse the order merely because this transaction does not get updated.
-    if order.order_id:
-        used_order_ids.add(order.order_id)
+    key = order_match_key(order)
+    if key:
+        used_order_ids.add(key)
 
     memo = _resolve_batch_memo_candidate(transaction, order, memo_generator)
     if memo is None:

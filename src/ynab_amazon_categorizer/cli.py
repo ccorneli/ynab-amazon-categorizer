@@ -21,11 +21,18 @@ from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 from . import __version__
 from .amazon_parser import AmazonParser, Order
+from .amazon_transactions import (
+    AmazonCharge,
+    orders_from_charges,
+    parse_transactions_page,
+)
 from .batch import process_batch
 from .config import Config
 from .exceptions import ConfigurationError, YNABAPIError
 from .memo_generator import (
     MemoGenerator,
+    amazon_orders_page_url,
+    amazon_transactions_page_url,
     generate_split_summary_memo,
     sanitize_memo,
 )
@@ -34,6 +41,7 @@ from .models import (
     TransactionUpdate,
     YNABTransaction,
     format_currency_amount,
+    order_match_key,
 )
 from .payloads import (
     build_single_payload,
@@ -382,8 +390,11 @@ def display_matched_order(matching_order: Order, memo_generator: MemoGenerator) 
     """Display matched order details to the user."""
     print("\n  🎯 MATCHED ORDER FOUND:")
     print(f"     Order ID: {matching_order.order_id}")
+    amount_label = {None: "Total", False: "Charged", True: "Refunded"}[
+        matching_order.refund
+    ]
     print(
-        f"     Total: "
+        f"     {amount_label}: "
         f"{format_currency_amount(matching_order.total, matching_order.currency)}",
     )
     print(
@@ -808,9 +819,9 @@ def _mark_order_used(
         not dry_run
         and used_order_ids is not None
         and matching_order is not None
-        and matching_order.order_id is not None
+        and (key := order_match_key(matching_order)) is not None
     ):
-        used_order_ids.add(matching_order.order_id)
+        used_order_ids.add(key)
 
 
 def _run_action_loop(
@@ -1162,12 +1173,13 @@ def _load_categories(
     return categories_list, category_name_map, category_id_map
 
 
-def _collect_parsed_orders() -> list[Order] | None:
+def _collect_parsed_orders(amazon_domain: str = "amazon.ca") -> list[Order] | None:
     """Optionally prompt for pasted Amazon orders data and summarize what parsed."""
     print("\n--- Optional: Amazon Orders Data ---")
     print(
         "You can paste Amazon orders page content to automatically match transactions with order details.",
     )
+    print(f"Open {amazon_orders_page_url(amazon_domain)}, select all and copy.")
     provide_orders = _prompt_line(
         "Would you like to provide Amazon orders data? (y/n, default y): ",
     ).lower()
@@ -1179,6 +1191,10 @@ def _collect_parsed_orders() -> list[Order] | None:
         print("No valid orders found in provided data.")
         return parsed_orders
 
+    charges = prompt_for_amazon_transactions_data(amazon_domain)
+    if charges:
+        parsed_orders = orders_from_charges(parsed_orders, charges)
+
     print(f"✓ Parsed {len(parsed_orders)} orders from Amazon data")
     for order in parsed_orders[:3]:
         print(
@@ -1189,6 +1205,43 @@ def _collect_parsed_orders() -> list[Order] | None:
     if len(parsed_orders) > 3:
         print(f"  ... and {len(parsed_orders) - 3} more orders")
     return parsed_orders
+
+
+def prompt_for_amazon_transactions_data(
+    amazon_domain: str = "amazon.ca",
+) -> list[AmazonCharge] | None:
+    """Optionally prompt for the Amazon transactions page, to match exact charges."""
+    print("\n--- Optional: Amazon Transactions Page ---")
+    print(
+        "Order totals don't always equal what your card was charged (split"
+        " shipments, gift cards). Pasting Your Payments > Transactions lets each"
+        " YNAB charge match its exact Amazon charge.",
+    )
+    print(f"Open {amazon_transactions_page_url(amazon_domain)}, select all and copy.")
+    provide = _prompt_line(
+        "Would you like to paste the Amazon transactions page? (y/n, default y): ",
+    ).lower()
+    if provide and provide != "y":
+        return None
+
+    print("\nPaste Amazon transactions page content:")
+    text = get_multiline_input_with_custom_submit("Paste here: ")
+    if text is None or not text.strip() or text.strip().lower() == "skip":
+        print("Skipping Amazon transactions data; matching by order totals.")
+        return None
+
+    charges = parse_transactions_page(text)
+    card_charges = [charge for charge in charges if not charge.is_gift_card]
+    if not card_charges:
+        print("No card charges found in that text; matching by order totals.")
+        return None
+    refunds = sum(charge.is_refund for charge in card_charges)
+    print(
+        f"✓ Parsed {len(card_charges)} card transactions"
+        f" ({refunds} refunds; {len(charges) - len(card_charges)} gift-card"
+        " payments ignored)",
+    )
+    return charges
 
 
 def _fetch_transactions(
@@ -1283,7 +1336,7 @@ def _run(argv: list[str] | None = None) -> int:
     category_completer_instance = CategoryCompleter(categories_list)
     print(f"\nFound {len(categories_list)} usable categories. Completion enabled.")
 
-    parsed_orders = _collect_parsed_orders()
+    parsed_orders = _collect_parsed_orders(config.amazon_domain)
 
     transactions_to_process = _fetch_transactions(
         ynab_client,

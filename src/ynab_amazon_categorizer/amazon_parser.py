@@ -334,7 +334,7 @@ class AmazonParser:
             r"^(Delivered|Arriving|Now arriving|Auto-delivered|Package was)",
             (
                 r"^(Your package|Your order|Your item|Your shipment|Your refund"
-                r"|Your replacement)\b"
+                r"|Your replacement|Your delivery|Your return)\b"
             ),
             (
                 r"^(Return items:|Return or replace|Refund issued|Refund:|Returned"
