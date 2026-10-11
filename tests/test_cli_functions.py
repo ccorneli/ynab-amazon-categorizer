@@ -1463,6 +1463,9 @@ def test_main_handles_terminal_interruption(
         raise interrupt
 
     monkeypatch.setattr(cli_module, "_prompt_line", interrupt_prompt)
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", interrupt_prompt
+    )
 
     exit_code = cli_module.main([])
 
