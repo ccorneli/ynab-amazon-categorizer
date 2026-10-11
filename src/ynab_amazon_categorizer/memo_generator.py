@@ -146,6 +146,10 @@ class MemoGenerator:
             return f"https://www.{self.amazon_domain}/gp/your-account/order-details?ie=UTF8&orderID={order_id}"
         return None
 
+    def generate_amazon_invoice_link(self, order_id: str) -> str:
+        """Link to the order summary (invoice) page, which lists item prices."""
+        return f"https://www.{self.amazon_domain}/gp/css/summary/print.html?orderID={order_id}"
+
     def generate_enhanced_memo(
         self,
         original_memo: str,

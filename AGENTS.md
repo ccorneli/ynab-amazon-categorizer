@@ -43,6 +43,7 @@ Current modules:
 - `src/ynab_amazon_categorizer/cli.py` - main CLI entry point and interactive flow.
 - `src/ynab_amazon_categorizer/amazon_parser.py` - Amazon order parsing logic.
 - `src/ynab_amazon_categorizer/amazon_transactions.py` - Amazon transactions-page parsing; turns card charges into matchable orders.
+- `src/ynab_amazon_categorizer/amazon_invoice.py` - order summary (invoice) page parsing for per-item split amounts.
 - `src/ynab_amazon_categorizer/transaction_matcher.py` - amount/date matching logic.
 - `src/ynab_amazon_categorizer/memo_generator.py` - memo and order-link generation.
 - `src/ynab_amazon_categorizer/ynab_client.py` - YNAB API communication.
