@@ -104,6 +104,8 @@ optional (default `amazon.ca`) and only affects memo order links.
 
 ## Agent Notes
 
+- This is a fork; `UPSTREAM.md` has the plan for contributing changes back to upstream. Keep it current when adding features.
+
 - On Windows, prefer `python -X utf8` to avoid emoji/category encoding issues.
 - Focus processing on likely Amazon payees (`amazon`, `amzn`, `amz`).
 - Add or update tests when behavior changes (parser, matcher, memo generation, API payloads).
