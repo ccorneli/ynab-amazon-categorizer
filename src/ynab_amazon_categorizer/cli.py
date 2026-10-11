@@ -98,19 +98,30 @@ def prompt_for_amazon_orders_data() -> list[Order] | None:
     return parsed_orders
 
 
+def submit_key_hint(platform: str | None = None) -> str:
+    """Describe the Meta+Enter submit keys in the platform's own terms.
+
+    Terminals send Meta+Enter as Escape followed by Enter. Mac terminals don't
+    map Option to Meta by default, so Esc then Return is the reliable keystroke.
+    """
+    if (platform or sys.platform) == "darwin":
+        return "Esc then Return (or Option+Return if your terminal uses Option as Meta)"
+    return "Alt+Enter (or Esc then Enter)"
+
+
 def get_multiline_input_with_custom_submit(
     prompt_message: str = "Enter multiline text: ",
 ) -> str | None:
-    """Get multiline input with Ctrl+J to submit."""
+    """Get multiline input, submitted with Meta+Enter (see submit_key_hint)."""
     kb = KeyBindings()
 
-    @kb.add("escape", "enter")  # Binds Alt+Enter to submit
+    @kb.add("escape", "enter")
     def _(event: KeyPressEvent) -> None:
-        """When Alt+Enter is pressed, accept the current buffer's text."""
+        """Accept the current buffer's text on Meta+Enter."""
         event.app.exit(result=event.app.current_buffer.text)
 
     print("Press Enter for a new line.")
-    print("Submit by pressing Alt+Enter.")
+    print(f"Submit by pressing {submit_key_hint()}.")
     print("Press Ctrl+C to cancel.")
 
     try:

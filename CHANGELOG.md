@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The multiline paste prompt names the submit keys for the current OS: Esc then Return on macOS (where Option is not Meta by default), Alt+Enter elsewhere
 - Setup writes `.env` atomically through a new owner-only file, so an existing world-readable `.env` never exposes the new API key, and a symlinked `.env` is replaced rather than written through
 - Setup only accepts a pasted account ID that is an open account in the chosen budget
 - Setup defaults the Amazon domain to the value in the existing `.env` instead of resetting it to `amazon.ca`
