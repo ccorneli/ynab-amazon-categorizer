@@ -218,8 +218,8 @@ once when prompted; `--batch` only removes the per-transaction prompting.
      - Fancy Feast Grilled Wet Cat Food, Salmon & Shrimp Feast in Gravy - 85 g Can (24 Pack)
 
 Action? (c = categorize/split, s = skip, q = quit, default c): 
-There is more than one item in this transaction.
-Split this transaction? (y/n, default n): y
+2 items in this order, so split defaults to yes.
+Split this transaction? (Y/n, default y):
 ```
 
 ## Generated Memos

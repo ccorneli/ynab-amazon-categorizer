@@ -1028,8 +1028,11 @@ def process_transaction(
 def _should_ask_split(matching_order: Order | None) -> str:
     """Determine whether to split and prompt the user if appropriate."""
     if matching_order and matching_order.items and len(matching_order.items) > 1:
-        print("There is more than one item in this transaction.")
-        return _prompt_line("Split this transaction? (y/n, default n): ").lower()
+        print(
+            f"{len(matching_order.items)} items in this order, so split defaults to yes.",
+        )
+        answer = _prompt_line("Split this transaction? (Y/n, default y): ").lower()
+        return answer or "y"
     if _env_flag("YNAB_SKIP_SPLIT_PROMPT_SINGLE_ITEM"):
         return "n"
     return _prompt_line("Split this transaction? (y/n, default n): ").lower()

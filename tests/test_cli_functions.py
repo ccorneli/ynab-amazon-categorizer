@@ -1761,3 +1761,32 @@ def test_invoice_prompt_skipped_with_empty_paste(
         cli_module.prompt_for_invoice_split(_split_order(), MemoGenerator(), -21000)
         is None
     )
+
+
+def test_split_defaults_to_yes_for_multiple_items(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+
+    assert cli_module._should_ask_split(_split_order()) == "y"
+    assert "2 items in this order, so split defaults to yes." in capsys.readouterr().out
+
+
+def test_split_multiple_items_can_still_decline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "N")
+
+    assert cli_module._should_ask_split(_split_order()) == "n"
+
+
+def test_split_defaults_to_no_for_single_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("YNAB_SKIP_SPLIT_PROMPT_SINGLE_ITEM", raising=False)
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+    order = _split_order()
+    order.items = ["Widget A"]
+
+    assert cli_module._should_ask_split(order) != "y"
