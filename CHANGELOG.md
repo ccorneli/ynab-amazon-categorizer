@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Interactive setup that creates `.env`: offered on first run when no `.env` exists, or run any time with `--setup`. Validates the API key, lists budgets and accounts to pick from (or accepts a pasted ID or YNAB URL), confirms the Amazon domain, and writes the file with owner-only permissions
 - `AMAZON_DOMAIN` documented in `.env.example` and the README
 - Re-running `--setup` offers the existing `.env` values as defaults and updates the file in place, preserving comments and other keys
+- Optional second paste of the Amazon transactions page (Your Payments → Transactions). YNAB transactions then match the exact card charge instead of the order total, so split shipments, orders partly paid by gift card, and refunds match; gift-card payments are ignored
 
 ### Fixed
 
+- Order-page status lines starting "Your delivery…" or "Your return…" (e.g. "Your delivery is taking longer than expected") are no longer extracted as items
 - The multiline paste prompt names the submit keys for the current OS: Esc then Return on macOS (where Option is not Meta by default), Alt+Enter elsewhere
 - Setup writes `.env` atomically through a new owner-only file, so an existing world-readable `.env` never exposes the new API key, and a symlinked `.env` is replaced rather than written through
 - Setup only accepts a pasted account ID that is an open account in the chosen budget

@@ -1425,6 +1425,7 @@ def test_main_batch_dry_run_smoke(
     monkeypatch.setattr(
         cli_module, "prompt_for_amazon_orders_data", lambda: [_batch_order()]
     )
+    monkeypatch.setattr(cli_module, "prompt_for_amazon_transactions_data", lambda: None)
     monkeypatch.setattr(
         cli_module,
         "fetch_amazon_transactions",
@@ -1564,3 +1565,79 @@ def test_multiline_input_prints_platform_submit_hint(
     out = capsys.readouterr().out
     assert "Submit by pressing Esc then Return" in out
     assert "Alt+Enter" not in out
+
+
+_CHARGES_PAGE = """
+Oct 02, 2026 · Amazon.com
+Prime Visa••••0000
+Order #702-1234567-7654321
+-$4.19
+Charged
+Oct 03, 2026 · Amazon.com
+Prime Visa••••0000
+Order #702-1234567-7654321
+-$10.80
+Charged
+Oct 03, 2026 · AMAZON MKTPLACE PMTS
+Amazon Gift Card
+Order #702-1234567-7654321
+-$5.00
+Charged
+"""
+
+_ORDERS_PAGE = """
+Order placed October 1, 2026
+Total $14.99
+Order # 702-1234567-7654321
+International Product Name With Enough Words To Parse
+"""
+
+
+def test_collect_parsed_orders_uses_transactions_page_charges(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A pasted transactions page turns a split order into one entry per charge."""
+    pastes = iter([_ORDERS_PAGE, _CHARGES_PAGE])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: "")
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: next(pastes)
+    )
+
+    orders = cli_module._collect_parsed_orders()
+
+    assert orders is not None
+    assert sorted(o.total for o in orders if o.total is not None) == [4.19, 10.80]
+    assert all(o.items for o in orders)
+    assert "2 card transactions (0 refunds; 1 gift-card payments ignored)" in (
+        capsys.readouterr().out
+    )
+
+
+def test_collect_parsed_orders_without_transactions_page_keeps_totals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Declining the transactions paste keeps matching on order totals."""
+    answers = iter(["y", "n"])
+    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(answers))
+    monkeypatch.setattr(
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: _ORDERS_PAGE
+    )
+
+    orders = cli_module._collect_parsed_orders()
+
+    assert orders is not None
+    assert [(o.total, o.charge_id) for o in orders] == [(14.99, None)]
+
+
+def test_display_matched_order_labels_charges(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A charge from the transactions page is shown as Charged, not Total."""
+    order = Order("702-1234567-7654321", 4.19, "October 2, 2026", ["Item"], "$")
+    order.charge_id = "702-1234567-7654321#0"
+    order.refund = False
+
+    cli_module.display_matched_order(order, MemoGenerator("amazon.com"))
+
+    assert "Charged: $4.19" in capsys.readouterr().out

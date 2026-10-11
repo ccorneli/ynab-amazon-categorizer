@@ -1,5 +1,7 @@
 """Tests for Amazon order parsing functionality."""
 
+import pytest
+
 from ynab_amazon_categorizer.amazon_parser import AmazonParser
 
 
@@ -582,3 +584,26 @@ def test_recommendations_after_pagination_do_not_leak_into_last_order() -> None:
     assert "Huggies" not in item_text
     assert "Blink Outdoor" not in item_text
     assert "Amazon Business" not in item_text
+
+
+@pytest.mark.parametrize(
+    "status_line",
+    [
+        "Your delivery is taking longer than expected",
+        "Your return is being processed",
+    ],
+)
+def test_your_delivery_status_skipped(status_line: str) -> None:
+    """Delivery/return status lines on order pages must not become items."""
+    parser = AmazonParser()
+
+    order_content = f"""
+    {status_line}
+    Reflective Pet Triangle Scarf Safety Bandana for Night Walking, Small
+    Buy it again
+    """
+
+    items = parser.extract_items_from_content(order_content)
+
+    assert status_line not in items
+    assert any("Reflective Pet Triangle Scarf" in i for i in items)
