@@ -1620,11 +1620,15 @@ def test_collect_parsed_orders_uses_transactions_page_charges(
 def test_collect_parsed_orders_without_transactions_page_keeps_totals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Declining the transactions paste keeps matching on order totals."""
-    answers = iter(["y", "n"])
-    monkeypatch.setattr(cli_module, "_prompt_line", lambda _prompt: next(answers))
+    """An empty transactions paste keeps matching on order totals."""
+    pastes = iter([_ORDERS_PAGE, ""])
+
+    def _no_line_prompt(_prompt: str) -> str:
+        raise AssertionError("no y/n prompt before the pastes")
+
+    monkeypatch.setattr(cli_module, "_prompt_line", _no_line_prompt)
     monkeypatch.setattr(
-        cli_module, "get_multiline_input_with_custom_submit", lambda _p: _ORDERS_PAGE
+        cli_module, "get_multiline_input_with_custom_submit", lambda _p: next(pastes)
     )
 
     orders = cli_module._collect_parsed_orders()

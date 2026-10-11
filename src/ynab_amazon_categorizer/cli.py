@@ -1261,13 +1261,10 @@ def _collect_parsed_orders(amazon_domain: str = "amazon.ca") -> list[Order] | No
     print(
         "You can paste Amazon orders page content to automatically match transactions with order details.",
     )
-    print(f"Open {amazon_orders_page_url(amazon_domain)}, select all and copy.")
-    provide_orders = _prompt_line(
-        "Would you like to provide Amazon orders data? (y/n, default y): ",
-    ).lower()
-    if provide_orders and provide_orders != "y":
-        return None
-
+    print(
+        f"Open {amazon_orders_page_url(amazon_domain)}, select all and copy."
+        " Submit the paste empty to skip.",
+    )
     parsed_orders = prompt_for_amazon_orders_data()
     if not parsed_orders:
         print("No valid orders found in provided data.")
@@ -1299,13 +1296,10 @@ def prompt_for_amazon_transactions_data(
         " shipments, gift cards). Pasting Your Payments > Transactions lets each"
         " YNAB charge match its exact Amazon charge.",
     )
-    print(f"Open {amazon_transactions_page_url(amazon_domain)}, select all and copy.")
-    provide = _prompt_line(
-        "Would you like to paste the Amazon transactions page? (y/n, default y): ",
-    ).lower()
-    if provide and provide != "y":
-        return None
-
+    print(
+        f"Open {amazon_transactions_page_url(amazon_domain)}, select all and copy."
+        " Submit the paste empty to skip.",
+    )
     print("\nPaste Amazon transactions page content:")
     text = get_multiline_input_with_custom_submit("Paste here: ")
     if text is None or not text.strip() or text.strip().lower() == "skip":
