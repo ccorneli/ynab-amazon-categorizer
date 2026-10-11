@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 
 from . import __version__
+from .amazon_invoice import allocate_amount, parse_order_summary
 from .amazon_parser import AmazonParser, Order
 from .amazon_transactions import (
     AmazonCharge,
@@ -534,24 +536,41 @@ def _resolve_split_amount_float(
 def _prompt_split_amount_milliunits(
     category_name: str | None,
     remaining_milliunits: int,
+    suggested_amount: float | None = None,
 ) -> int:
-    """Prompt the user for a split amount and return the signed milliunits value."""
+    """Prompt the user for a split amount and return the signed milliunits value.
+
+    With a ``suggested_amount`` (from the order summary page), blank accepts it.
+    """
     tax_rate = _tax_rate_for_category(category_name)
     tax_pct = tax_rate * 100
     while True:
         try:
             max_amount = abs(remaining_milliunits / 1000.0)
             max_base = max_amount / (1 + tax_rate) if tax_rate else max_amount
-            base_str = _prompt_line(
-                f"Enter base price for '{category_name}' ({tax_pct:g}% tax, "
-                f"max base ~{max_base:.2f}, blank = remaining {max_amount:.2f} as-is): ",
-            ).strip()
+            if suggested_amount is not None:
+                default = min(suggested_amount, max_amount)
+                base_str = _prompt_line(
+                    f"Enter amount for '{category_name}' (blank = {default:.2f} from"
+                    f" the order summary; or a base price for {tax_pct:g}% tax,"
+                    " or =exact total): ",
+                ).strip()
+            else:
+                default = None
+                base_str = _prompt_line(
+                    f"Enter base price for '{category_name}' ({tax_pct:g}% tax, "
+                    f"max base ~{max_base:.2f}, blank = remaining {max_amount:.2f} as-is): ",
+                ).strip()
 
-            split_amount_float = _resolve_split_amount_float(
-                base_str,
-                max_amount,
-                tax_rate,
-                tax_pct,
+            split_amount_float = (
+                default
+                if default is not None and not base_str
+                else _resolve_split_amount_float(
+                    base_str,
+                    max_amount,
+                    tax_rate,
+                    tax_pct,
+                )
             )
             if split_amount_float is None:
                 continue
@@ -599,9 +618,11 @@ def handle_split(
     memo_generator: MemoGenerator,
     category_completer: CategoryCompleter,
     category_name_map: dict[str, str],
+    suggested_amounts: list[float] | None = None,
 ) -> list[SaveSubtransaction] | None:
     """Handle split transaction flow.
 
+    ``suggested_amounts`` gives a default amount per item, in item order.
     Returns list of subtransaction dicts, or None if cancelled.
     """
     print("\n--- Splitting Transaction ---")
@@ -635,6 +656,9 @@ def handle_split(
         split_amount_milliunits = _prompt_split_amount_milliunits(
             category_name,
             remaining_milliunits,
+            suggested_amounts[split_count - 1]
+            if suggested_amounts and split_count <= len(suggested_amounts)
+            else None,
         )
 
         # --- ENHANCED SPLIT MEMO INPUT ---
@@ -664,6 +688,59 @@ def handle_split(
     if remaining_milliunits == 0 and subtransactions:
         return subtransactions
     return None
+
+
+def prompt_for_invoice_split(
+    matching_order: Order | None,
+    memo_generator: MemoGenerator,
+    amount_milliunits: int,
+) -> tuple[Order, list[float]] | None:
+    """Offer to paste the order summary page and suggest an amount per item.
+
+    Returns the order with the summary page's items (in page order) and the
+    matching amounts, or None to split without suggestions.
+    """
+    if matching_order is None or not matching_order.order_id:
+        return None
+    order_id = matching_order.order_id
+    print("\nItem prices are on the order summary page:")
+    print(f"  {memo_generator.generate_amazon_invoice_link(order_id)}")
+    answer = _prompt_line(
+        "Paste it to fill in split amounts? (y/n, default y): ",
+    ).lower()
+    if answer and answer != "y":
+        return None
+
+    text = get_multiline_input_with_custom_submit("Paste here: ")
+    if text is None or not text.strip() or text.strip().lower() == "skip":
+        return None
+    summary = parse_order_summary(text)
+    if summary is None:
+        print("No item prices found in that text; enter amounts manually.")
+        return None
+    if summary.order_id and summary.order_id != order_id:
+        print(f"That page is order {summary.order_id}, not {order_id}; ignoring it.")
+        return None
+
+    prices = [item.price for item in summary.items]
+    if summary.subtotal is not None and abs(sum(prices) - summary.subtotal) >= 0.01:
+        print(
+            f"⚠ Item prices add up to ${sum(prices):.2f} but the subtotal is"
+            f" ${summary.subtotal:.2f} (quantities?); check the amounts.",
+        )
+    charge = abs(amount_milliunits) / 1000
+    order_total = summary.grand_total if summary.grand_total is not None else charge
+    if abs(charge - order_total) >= 0.01:
+        print(
+            f"⚠ This charge (${charge:.2f}) is only part of the order"
+            f" (${order_total:.2f}); amounts are each item's share of the whole order.",
+        )
+    amounts = allocate_amount(order_total, prices)
+
+    print("Amount per item (price plus its share of tax, shipping and discounts):")
+    for item, amount in zip(summary.items, amounts, strict=True):
+        print(f"  ${amount:.2f}  {item.name}")
+    return replace(matching_order, items=[item.name for item in summary.items]), amounts
 
 
 def _get_suggested_split_memo(
@@ -1024,19 +1101,26 @@ def _handle_categorize(
         )
     else:
         # --- SPLITTING ---
+        invoice = prompt_for_invoice_split(
+            matching_order,
+            memo_generator,
+            transaction["amount"],
+        )
+        split_order, suggested_amounts = invoice or (matching_order, None)
         subtransactions = handle_split(
             transaction,
-            matching_order,
+            split_order,
             memo_generator,
             category_completer,
             category_name_map,
+            suggested_amounts,
         )
         if not subtransactions:
             print("Splitting cancelled. No changes will be made.")
             return "continue"
         updated_payload_dict = build_split_payload(
             subtransactions,
-            matching_order,
+            split_order,
             original_memo,
         )
 

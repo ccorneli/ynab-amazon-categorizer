@@ -35,6 +35,10 @@ depends_on = [
 ]
 
 [[modules]]
+path = "ynab_amazon_categorizer.amazon_invoice"
+depends_on = []
+
+[[modules]]
 path = "ynab_amazon_categorizer.amazon_transactions"
 depends_on = ["ynab_amazon_categorizer.models"]
 
@@ -80,6 +84,7 @@ depends_on = [
 path = "ynab_amazon_categorizer.cli"
 depends_on = [
     "ynab_amazon_categorizer",
+    "ynab_amazon_categorizer.amazon_invoice",
     "ynab_amazon_categorizer.amazon_parser",
     "ynab_amazon_categorizer.amazon_transactions",
     "ynab_amazon_categorizer.batch",
