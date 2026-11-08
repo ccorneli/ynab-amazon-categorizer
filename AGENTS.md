@@ -1,7 +1,6 @@
 # AGENTS.md
 
 Repository instructions for coding agents working on this project.
-`CLAUDE.md` may point here for compatibility.
 
 ## Project Overview
 
