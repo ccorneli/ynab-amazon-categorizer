@@ -7,8 +7,11 @@ changes back upstream in small pieces.
 
 ## Where the fork stands
 
-- Forked from upstream `main` at `7b88a9b` (2026-09-04). Upstream had no newer
-  commits as of 2026-10-11, so the fork was a clean fast-forward.
+- Forked from upstream `main` at `7b88a9b` (2026-09-04). Upstream's two
+  housekeeping commits of 2026-10-20 (`32f421f` drops the `CLAUDE.md` symlink,
+  `848e21a` drops the `graphify-out/` ignores) are merged in, so the fork
+  contains all of upstream `main` as of 2026-11-08. Before branching a PR for
+  upstream, check `git log origin/main..upstream/main` for anything newer.
 - Changes as of PR #7: 22 files, +2,699 / −98 lines.
   - Source: +1,177 / −83. New modules `setup_wizard.py`, `amazon_transactions.py`,
     `amazon_invoice.py` and `run_summary.py`; `cli.py` changed by about 400 lines.
